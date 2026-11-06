@@ -1,0 +1,26 @@
+{
+  "name": "@axa-sign/workers",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@axa-sign/database": "*",
+    "@axa-sign/shared": "*",
+    "@axa-sign/queue": "*",
+    "@axa-sign/events": "*",
+    "@axa-sign/notifications": "*",
+    "@axa-sign/pdf": "*",
+    "@axa-sign/storage": "*",
+    "bullmq": "^5.31.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

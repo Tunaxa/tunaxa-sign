@@ -1,0 +1,600 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://tunaxa:axa_secret@localhost:5432/axa_sign?schema=public"
+}
+
+// ─── Identity & Tenancy ───────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logoUrl   String?
+  plan      Plan     @default(FREE)
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  teams         Team[]
+  contracts     Contract[]
+  templates     Template[]
+  apiKeys       ApiKey[]
+  webhooks      WebhookEndpoint[]
+  integrations  Integration[]
+  auditEvents   AuditEvent[]
+  notifications Notification[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  passwordHash   String
+  firstName      String
+  lastName       String
+  avatarUrl      String?
+  emailVerified  Boolean   @default(false)
+  mfaEnabled     Boolean   @default(false)
+  mfaSecret      String?
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  teamId  String?
+  team    Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  role            UserRole  @default(MEMBER)
+  createdContracts Contract[] @relation("ContractCreator")
+  signings        SigningSession[]
+  auditEvents     AuditEvent[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("users")
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  users User[]
+
+  @@unique([organizationId, name])
+  @@map("teams")
+}
+
+// ─── Contracts ────────────────────────────────────────
+
+model Contract {
+  id        String         @id @default(cuid())
+  title     String
+  status    ContractStatus @default(DRAFT)
+  source    ContractSource @default(MANUAL)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  templateId String?
+  template   Template? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  currentVersionId String?
+  currentVersion   ContractVersion? @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+
+  createdBy  String
+  creator    User   @relation("ContractCreator", fields: [createdBy], references: [id])
+
+  expiresAt  DateTime?
+  createdAt  DateTime @default(now())
+  sentAt     DateTime?
+  viewedAt   DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  versions     ContractVersion[]
+  participants Participant[]
+  signatures   Signature[]
+  auditEvents  AuditEvent[]
+  certificates Certificate[]
+  signingSteps SigningStep[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([createdBy])
+  @@map("contracts")
+}
+
+model ContractVersion {
+  id        String   @id @default(cuid())
+  version   Int
+  sha256    String
+  createdAt DateTime @default(now())
+
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id])
+
+  createdBy String
+
+  isCurrent Boolean @default(false)
+
+  contractsUsingAsCurrent Contract[] @relation("CurrentVersion")
+
+  @@unique([contractId, version])
+  @@map("contract_versions")
+}
+
+// ─── Documents ────────────────────────────────────────
+
+model Document {
+  id        String   @id @default(cuid())
+  name      String
+  mimeType  String   @default("application/pdf")
+  size      Int
+  sha256    String
+
+  storageKey String
+
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  versions ContractVersion[]
+
+  @@map("documents")
+}
+
+// ─── Templates ────────────────────────────────────────
+
+model Template {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String?
+  isActive    Boolean  @default(true)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  versions    TemplateVersion[]
+  contracts   Contract[]
+  fields      TemplateField[]
+  roles       TemplateRole[]
+
+  @@index([organizationId])
+  @@map("templates")
+}
+
+model TemplateVersion {
+  id        String @id @default(cuid())
+  version   Int
+  documentId String
+  sha256    String
+  createdAt DateTime @default(now())
+
+  templateId String
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+  @@map("template_versions")
+}
+
+model TemplateField {
+  id       String @id @default(cuid())
+  name     String
+  type     FieldType
+  required Boolean @default(true)
+  x        Float
+  y        Float
+  width    Float
+  height   Float
+  page     Int    @default(1)
+  config   Json   @default("{}")
+
+  templateId String
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  roleId String?
+  role   TemplateRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@map("template_fields")
+}
+
+model TemplateRole {
+  id   String @id @default(cuid())
+  name String
+
+  templateId String
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  fields TemplateField[]
+
+  @@unique([templateId, name])
+  @@map("template_roles")
+}
+
+// ─── Participants & Signing ───────────────────────────
+
+model Participant {
+  id           String          @id @default(cuid())
+  type         ParticipantType @default(SIGNER)
+  name         String
+  email        String
+  role         String?
+  signingOrder Int             @default(0)
+  status       ParticipantStatus @default(PENDING)
+  signedAt     DateTime?
+  declinedAt   DateTime?
+  declinedReason String?
+
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  signingSessions SigningSession[]
+  signatures      Signature[]
+  signingSteps    SigningStep[]
+
+  @@index([contractId])
+  @@map("participants")
+}
+
+model SigningSession {
+  id              String   @id @default(cuid())
+  tokenHash       String
+  expiresAt       DateTime
+  authenticatedAt DateTime?
+  completedAt     DateTime?
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User? @relation(fields: [userId], references: [id])
+
+  @@index([tokenHash])
+  @@index([participantId])
+  @@map("signing_sessions")
+}
+
+model SigningStep {
+  id        String            @id @default(cuid())
+  step      Int
+  type      WorkflowStepType  @default(SIGN)
+  status    StepStatus        @default(PENDING)
+  startedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime          @default(now())
+
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@unique([contractId, step])
+  @@map("signing_steps")
+}
+
+// ─── Signatures & Evidence ────────────────────────────
+
+model Signature {
+  id        String   @id @default(cuid())
+  type      SignatureType @default(DRAWN)
+  fieldX    Float?
+  fieldY    Float?
+  fieldWidth  Float?
+  fieldHeight Float?
+  page      Int?
+  imageData String?
+  createdAt DateTime @default(now())
+
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  evidence SignatureEvidence?
+
+  @@map("signatures")
+}
+
+model SignatureEvidence {
+  id                  String   @id @default(cuid())
+  documentHashBefore  String
+  documentHashAfter   String
+  authenticationMethod String
+  ipAddress           String?
+  userAgent           String?
+  signatureId         String   @unique
+  signature           Signature @relation(fields: [signatureId], references: [id], onDelete: Cascade)
+  createdAt           DateTime @default(now())
+
+  @@map("signature_evidence")
+}
+
+// ─── Certificates ─────────────────────────────────────
+
+model Certificate {
+  id        String   @id @default(cuid())
+  serialNumber String
+  subject   String
+  issuer    String
+  validFrom DateTime
+  validTo   DateTime
+  pdfKey    String
+  createdAt DateTime @default(now())
+
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@map("certificates")
+}
+
+// ─── Audit ────────────────────────────────────────────
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  type      String
+  data      Json     @default("{}")
+  hash      String
+  previousHash String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  contractId String?
+  contract   Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  userId String?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([contractId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("audit_events")
+}
+
+// ─── Notifications ────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  channel   NotificationChannel
+  subject   String
+  body      String
+  sentAt    DateTime?
+  deliveredAt DateTime?
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  deliveries NotificationDelivery[]
+
+  @@map("notifications")
+}
+
+model NotificationDelivery {
+  id        String   @id @default(cuid())
+  status    DeliveryStatus @default(PENDING)
+  error     String?
+  attempts  Int      @default(0)
+  sentAt    DateTime?
+  deliveredAt DateTime?
+  createdAt DateTime @default(now())
+
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  recipientEmail String
+  recipientPhone String?
+
+  @@map("notification_deliveries")
+}
+
+// ─── Webhooks ─────────────────────────────────────────
+
+model WebhookEndpoint {
+  id     String @id @default(cuid())
+  url    String
+  secret String
+  events String[]
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  deliveries WebhookDelivery[]
+
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  event      String
+  payload    Json
+  status     WebhookDeliveryStatus @default(PENDING)
+  error      String?
+  statusCode Int?
+  response   String?
+  attempts   Int      @default(0)
+  nextRetryAt DateTime?
+  deliveredAt DateTime?
+  createdAt  DateTime @default(now())
+
+  endpointId String
+  endpoint   WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@map("webhook_deliveries")
+}
+
+// ─── Integrations & API Keys ──────────────────────────
+
+model Integration {
+  id        String   @id @default(cuid())
+  type      String
+  config    Json     @default("{}")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, type])
+  @@map("integrations")
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  name        String
+  keyHash     String   @unique
+  prefix      String
+  permissions Json     @default("[]")
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+// ─── Enums ────────────────────────────────────────────
+
+enum Plan {
+  FREE
+  STARTER
+  BUSINESS
+  ENTERPRISE
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SENDING
+  DELIVERED
+  FAILED
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  MEMBER
+  ACCOUNTANT
+  VIEWER
+}
+
+enum ContractStatus {
+  DRAFT
+  PREPARING
+  SENT
+  VIEWED
+  IN_PROGRESS
+  COMPLETED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+
+enum ContractSource {
+  MANUAL
+  TEMPLATE
+  CRM
+  API
+  IMPORT
+}
+
+enum ParticipantType {
+  SIGNER
+  APPROVER
+  CC
+  VIEWER
+}
+
+enum ParticipantStatus {
+  PENDING
+  SENT
+  VIEWED
+  IN_PROGRESS
+  SIGNED
+  DECLINED
+  EXPIRED
+}
+
+enum FieldType {
+  SIGNATURE
+  INITIAL
+  DATE
+  TEXT
+  CHECKBOX
+  DROPDOWN
+  NUMBER
+  EMAIL
+  PHONE
+}
+
+enum WorkflowStepType {
+  SIGN
+  APPROVE
+  CC
+  VIEW
+}
+
+enum StepStatus {
+  PENDING
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  DECLINED
+}
+
+enum SignatureType {
+  DRAWN
+  TYPED
+  UPLOADED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}

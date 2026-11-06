@@ -1,0 +1,18 @@
+FROM node:20-alpine AS base
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+COPY apps/workers/package.json ./apps/workers/
+COPY packages/*/package.json ./packages/
+
+RUN npm install --workspace=@axa-sign/workers
+
+COPY tsconfig.base.json ./
+COPY apps/workers/ ./apps/workers/
+COPY packages/ ./packages/
+
+RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
+
+RUN npm run build --workspace=@axa-sign/workers
+
+CMD ["node", "apps/workers/dist/index.js"]

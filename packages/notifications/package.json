@@ -1,0 +1,20 @@
+{
+  "name": "@axa-sign/notifications",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.0"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^6.4.14",
+    "typescript": "^5.7.0"
+  }
+}

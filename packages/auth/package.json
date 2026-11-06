@@ -1,0 +1,22 @@
+{
+  "name": "@axa-sign/auth",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@axa-sign/shared": "*",
+    "jsonwebtoken": "^9.0.2",
+    "argon2": "^0.41.0"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "typescript": "^5.7.0"
+  }
+}

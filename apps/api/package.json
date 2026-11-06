@@ -1,0 +1,41 @@
+{
+  "name": "@axa-sign/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@axa-sign/database": "*",
+    "@axa-sign/domain": "*",
+    "@axa-sign/shared": "*",
+    "@axa-sign/auth": "*",
+    "@axa-sign/crypto": "*",
+    "@axa-sign/pdf": "*",
+    "@axa-sign/storage": "*",
+    "@axa-sign/queue": "*",
+    "@axa-sign/events": "*",
+    "@axa-sign/notifications": "*",
+    "express": "^5.1.0",
+    "cors": "^2.8.5",
+    "helmet": "^8.0.0",
+    "compression": "^1.7.4",
+    "morgan": "^1.10.0",
+    "express-rate-limit": "^7.5.0",
+    "multer": "^1.4.5-lts.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/compression": "^1.7.5",
+    "@types/morgan": "^1.9.9",
+    "@types/multer": "^1.4.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

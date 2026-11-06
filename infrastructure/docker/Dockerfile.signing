@@ -1,0 +1,19 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+COPY apps/signing-app/package.json ./apps/signing-app/
+COPY packages/shared/package.json ./packages/shared/
+
+RUN npm install --workspace=@axa-sign/signing-app
+
+COPY tsconfig.base.json ./
+COPY apps/signing-app/ ./apps/signing-app/
+COPY packages/shared/ ./packages/shared/
+
+RUN npm run build --workspace=@axa-sign/signing-app
+
+FROM nginx:alpine
+COPY --from=build /app/apps/signing-app/dist /usr/share/nginx/html
+COPY infrastructure/nginx/signing.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
