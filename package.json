@@ -7,16 +7,17 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "node scripts/with-env.mjs turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
-    "db:generate": "turbo db:generate",
-    "db:push": "turbo db:push",
-    "db:migrate": "turbo db:migrate",
-    "db:seed": "turbo db:seed",
-    "db:studio": "turbo db:studio",
+    "db:generate": "node scripts/with-env.mjs turbo db:generate",
+    "db:migrate": "node scripts/with-env.mjs turbo db:migrate",
+    "db:migrate:deploy": "node scripts/with-env.mjs turbo db:migrate:deploy",
+    "db:migrate:status": "node scripts/with-env.mjs turbo db:migrate:status",
+    "db:seed": "node scripts/with-env.mjs turbo db:seed",
+    "db:studio": "node scripts/with-env.mjs turbo db:studio",
     "clean": "turbo clean"
   },
   "devDependencies": {

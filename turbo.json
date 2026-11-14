@@ -1,7 +1,10 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
-  "concurrency": "2",
+  // Dev-only convenience: forwards the shell environment to tasks. Do not rely on this in CI/prod.
+  "envMode": "loose",
+  // 15 packages run persistent dev tasks (5 apps + 10 package watchers); Turbo needs concurrency >= 16.
+  "concurrency": "16",
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -23,10 +26,13 @@
     "db:generate": {
       "cache": false
     },
-    "db:push": {
+    "db:migrate": {
       "cache": false
     },
-    "db:migrate": {
+    "db:migrate:deploy": {
+      "cache": false
+    },
+    "db:migrate:status": {
       "cache": false
     },
     "db:seed": {

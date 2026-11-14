@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: axa_secret
       POSTGRES_DB: axa_sign
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -34,18 +34,18 @@ services:
       retries: 5
 
   # ── MinIO (S3-compatible storage) ───────────────────
-  # minio:
-  #   image: ghcr.io/minio/minio:latest
-  #   restart: unless-stopped
-  #   command: server /data --console-address ":9001"
-  #   environment:
-  #     MINIO_ROOT_USER: minioadmin
-  #     MINIO_ROOT_PASSWORD: minioadmin
-  #   ports:
-  #     - "9000:9000"
-  #     - "9001:9001"
-  #   volumes:
-  #     - minio_data:/data
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:ddfab4c402bf32e7701600d16d8c40dbccfab4c4e5340eef4c324394349c7926
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
 
   # ── API Server ──────────────────────────────────────
   api:
@@ -75,8 +75,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      # minio:
-      #   condition: service_started
+      minio:
+        condition: service_started
 
   # ── Workers ─────────────────────────────────────────
   workers:
@@ -103,6 +103,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
 
   # ── Web Frontend ────────────────────────────────────
   web:
