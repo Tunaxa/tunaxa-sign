@@ -62,26 +62,7 @@ export async function applySignatures(
       color: rgb(0.98, 0.98, 1),
     });
 
-    // Draw name in script-style vicinity
-    page.drawText(p.name, {
-      x: p.x + 6,
-      y: height - p.y - p.height + 8,
-      size: 14,
-      font,
-      color: rgb(0.05, 0.05, 0.12),
-    });
-
-    // Draw timestamp
-    const timestamp = (p.date || new Date()).toISOString();
-    page.drawText(timestamp, {
-      x: p.x + 6,
-      y: height - p.y - p.height + height - height + 24,
-      size: 7,
-      font,
-      color: rgb(0.4, 0.4, 0.5),
-    });
-
-    // If an image signature is provided, embed it
+    // Embed the image before text so opaque signature backgrounds do not hide the timestamp.
     if (p.imageData) {
       try {
         const img = await embedImage(pdfDoc, p.imageData);
@@ -97,6 +78,25 @@ export async function applySignatures(
         // Fall back to text-only signature if image fails
       }
     }
+
+    // Draw name in script-style vicinity
+    page.drawText(p.name, {
+      x: p.x + 6,
+      y: height - p.y - p.height + 8,
+      size: 14,
+      font,
+      color: rgb(0.05, 0.05, 0.12),
+    });
+
+    // Draw timestamp
+    const timestamp = (p.date || new Date()).toISOString();
+    page.drawText(timestamp, {
+      x: p.x + 6,
+      y: height - p.y - p.height + 24,
+      size: 7,
+      font,
+      color: rgb(0.4, 0.4, 0.5),
+    });
   }
 
   const bytes = await pdfDoc.save({ useObjectStreams: true });

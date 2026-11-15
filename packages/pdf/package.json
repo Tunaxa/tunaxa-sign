@@ -8,6 +8,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/index.test.ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -15,6 +16,7 @@
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
+    "tsx": "4.23.13",
     "typescript": "^5.7.0"
   }
 }

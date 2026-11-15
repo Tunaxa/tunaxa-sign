@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - TUN2-1: Enable the MinIO service in Docker Compose.
 - TUN2-2: Add the initial Prisma migration baseline and `db:migrate:deploy` / `db:migrate:status` scripts.
 - TUN2-3: Add an idempotent demo seed for the AXA organization, admin/agent users, NDA template roles/fields, and PDF stored in MinIO.
+- TUN2-4: Add a pdf-lib/`node:test` regression test for the PDF seal step in `packages/pdf`.
 
 ### Changed
 
@@ -23,3 +24,4 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - TUN2-1: Correct the database credentials in `.env.example` to `tunaxa:axa_secret`.
+- TUN2-4: Draw embedded signature images before the signer name and timestamp in `packages/pdf` so opaque PNG signatures no longer hide the timestamp, and remove a no-op coordinate expression.
