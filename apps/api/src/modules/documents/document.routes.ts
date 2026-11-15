@@ -14,10 +14,15 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     if (!req.file) {
       return res.status(400).json({ error: "No file provided" });
     }
+    const contractId =
+      typeof req.body.contractId === "string" && req.body.contractId.length > 0
+        ? req.body.contractId
+        : undefined;
     const document = await service.upload(
       req.user!.organizationId,
+      req.user!.sub,
       req.file,
-      req.body.contractId
+      contractId
     );
     res.status(201).json(document);
   } catch (error) {
