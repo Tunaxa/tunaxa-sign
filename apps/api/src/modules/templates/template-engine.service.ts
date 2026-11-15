@@ -1,6 +1,9 @@
-import prisma from "@axa-sign/database";
-import { generateId, NotFoundError, ConflictError } from "@axa-sign/shared";
+import prisma, { type Prisma } from "@axa-sign/database";
+import { generateId, NotFoundError, ConflictError, sha256 } from "@axa-sign/shared";
 import { eventBus } from "@axa-sign/events";
+import { createStorageClient } from "@axa-sign/storage";
+
+const storage = createStorageClient();
 
 export interface TemplateVariable {
   key: string;
@@ -74,7 +77,12 @@ export class TemplateEngine {
 
     const title = options?.title || this.renderTitle(template.name, variables);
 
-    // Create the contract in a transaction
+    // Read the source PDF bytes and hash the actual file before opening the
+    // transaction so no storage I/O runs inside it.
+    const pdfBytes = await storage.download(sourceDocument.storageKey);
+    const documentSha256 = sha256(pdfBytes);
+
+    // Create the contract, document, version and participants atomically.
     const result = await prisma.$transaction(async (tx) => {
       const contract = await tx.contract.create({
         data: {
@@ -88,53 +96,53 @@ export class TemplateEngine {
         },
       });
 
-      return { contract };
-    });
+      const document = await this.generateDocument(
+        tx,
+        sourceDocument,
+        template,
+        variables,
+        pdfBytes,
+        documentSha256
+      );
 
-    // Generate the contract document from template document
-    const document = await this.generateDocument(
-      sourceDocument,
-      template,
-      variables
-    );
-
-    // Attach document as Version 1
-    await prisma.contractVersion.create({
-      data: {
-        contractId: result.contract.id,
-        version: 1,
-        documentId: document.id,
-        sha256: this.computeHash(variables),
-        isCurrent: true,
-        createdBy: userId,
-      },
-    });
-
-    await prisma.contract.update({
-      where: { id: result.contract.id },
-      data: { currentVersionId: document.id },
-    });
-
-    // Create participants
-    const createdParticipants = [];
-    for (const p of participants) {
-      const role = p.role || "Signer";
-      const participantType = p.type || "SIGNER";
-
-      const participant = await prisma.participant.create({
+      const contractVersion = await tx.contractVersion.create({
         data: {
-          contractId: result.contract.id,
-          name: p.name || variables[`${role.toLowerCase()}.name`] || role,
-          email: p.email,
-          type: participantType,
-          role,
-          signingOrder: p.signingOrder || 0,
+          contractId: contract.id,
+          version: 1,
+          documentId: document.id,
+          sha256: documentSha256,
+          isCurrent: true,
+          createdBy: userId,
         },
       });
-      createdParticipants.push(participant);
-    }
 
-    // Emit domain event
+      await tx.contract.update({
+        where: { id: contract.id },
+        data: { currentVersionId: contractVersion.id },
+      });
+
+      const createdParticipants = [];
+      for (const p of participants) {
+        const role = p.role || "Signer";
+        const participantType = p.type || "SIGNER";
+
+        const participant = await tx.participant.create({
+          data: {
+            contractId: contract.id,
+            name: p.name || variables[`${role.toLowerCase()}.name`] || role,
+            email: p.email,
+            type: participantType,
+            role,
+            signingOrder: p.signingOrder || 0,
+          },
+        });
+        createdParticipants.push(participant);
+      }
+
+      return { contract, document, createdParticipants };
+    });
+
+    // Emit domain event after the transaction commits
     await eventBus.emit({
       type: "contract.created",
       organizationId,
@@ -150,10 +158,10 @@ export class TemplateEngine {
         status: "DRAFT",
       },
       document: {
-        id: document.id,
-        name: document.name,
+        id: result.document.id,
+        name: result.document.name,
       },
-      participants: createdParticipants.map((p) => ({
+      participants: result.createdParticipants.map((p) => ({
         id: p.id,
         name: p.name,
         email: p.email,
@@ -169,16 +177,19 @@ export class TemplateEngine {
    * variables applied to the template document.
    */
   private async generateDocument(
+    tx: Prisma.TransactionClient,
     sourceDocument: any,
     template: any,
-    variables: Record<string, string>
+    variables: Record<string, string>,
+    pdfBytes: Buffer,
+    documentSha256: string
   ) {
-    const newDocument = await prisma.document.create({
+    return tx.document.create({
       data: {
         name: template.name.replace(/\s+/g, "-").toLowerCase() + ".pdf",
         mimeType: "application/pdf",
-        size: sourceDocument.size,
-        sha256: this.computeHash(variables),
+        size: pdfBytes.length,
+        sha256: documentSha256,
         storageKey: sourceDocument.storageKey, // cloned reference for now
         metadata: {
           templateId: template.id,
@@ -187,8 +198,6 @@ export class TemplateEngine {
         },
       },
     });
-
-    return newDocument;
   }
 
   private async validateVariables(template: any, variables: Record<string, string>) {
@@ -210,12 +219,5 @@ export class TemplateEngine {
       title = title.replace(pattern, (_, key: string) => variables[key] || "");
     }
     return title;
-  }
-
-  private computeHash(variables: Record<string, string>): string {
-    const { createHash } = require("crypto");
-    return createHash("sha256")
-      .update(JSON.stringify(variables))
-      .digest("hex");
   }
 }
