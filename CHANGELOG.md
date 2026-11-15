@@ -25,3 +25,8 @@ All notable changes to this project will be documented in this file.
 
 - TUN2-1: Correct the database credentials in `.env.example` to `tunaxa:axa_secret`.
 - TUN2-4: Draw embedded signature images before the signer name and timestamp in `packages/pdf` so opaque PNG signatures no longer hide the timestamp, and remove a no-op coordinate expression.
+- TUN2-9: Create the `ContractVersion` in the same transaction as the contract, document and participants, set `Contract.currentVersionId` to the version id, and hash the stored PDF bytes instead of the template variables.
+
+### Known gaps
+
+- TUN2-9: Generated PDFs still contain unfilled `{{placeholder}}` values because merged PDF generation is tracked separately in TUN2-38.
