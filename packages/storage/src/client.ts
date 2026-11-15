@@ -4,9 +4,14 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  HeadBucketCommand,
+  CreateBucketCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { StorageConfig, UploadResult } from "./types";
+
+const DEFAULT_RETRIES = 10;
+const DEFAULT_RETRY_DELAY_MS = 1000;
 
 export class StorageClient {
   private client: S3Client;
@@ -23,6 +28,41 @@ export class StorageClient {
       forcePathStyle: true,
     });
     this.bucket = config.bucket;
+  }
+
+  async ensureBucket(
+    retries = DEFAULT_RETRIES,
+    delayMs = DEFAULT_RETRY_DELAY_MS
+  ): Promise<void> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+        return;
+      } catch (error) {
+        if (isMissingBucket(error)) {
+          try {
+            await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
+            return;
+          } catch (createError) {
+            if (isBucketAlreadyOwned(createError)) {
+              return;
+            }
+            lastError = createError;
+          }
+        } else {
+          lastError = error;
+        }
+      }
+
+      if (attempt < retries - 1) {
+        await delay(delayMs);
+      }
+    }
+
+    if (lastError) throw lastError;
+    throw new Error(`Failed to ensure storage bucket: ${this.bucket}`);
   }
 
   async upload(key: string, body: Buffer, contentType: string): Promise<UploadResult> {
@@ -93,4 +133,34 @@ export class StorageClient {
     });
     return getSignedUrl(this.client, command, { expiresIn });
   }
+}
+
+export function createStorageClient(overrides: Partial<StorageConfig> = {}): StorageClient {
+  return new StorageClient({
+    endpoint: process.env.STORAGE_ENDPOINT || "localhost",
+    port: Number(process.env.STORAGE_PORT) || 9000,
+    bucket: process.env.STORAGE_BUCKET || "axa-sign",
+    accessKey: process.env.STORAGE_ACCESS_KEY || "minioadmin",
+    secretKey: process.env.STORAGE_SECRET_KEY || "minioadmin",
+    useSSL: process.env.STORAGE_USE_SSL === "true",
+    ...overrides,
+  });
+}
+
+function isMissingBucket(error: unknown): boolean {
+  const e = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return (
+    e.$metadata?.httpStatusCode === 404 ||
+    e.name === "NotFound" ||
+    e.name === "NoSuchBucket"
+  );
+}
+
+function isBucketAlreadyOwned(error: unknown): boolean {
+  const e = error as { name?: string };
+  return e.name === "BucketAlreadyOwnedByYou" || e.name === "BucketAlreadyExists";
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
