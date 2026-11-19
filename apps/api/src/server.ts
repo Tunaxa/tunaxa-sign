@@ -1,14 +1,13 @@
 import { createStorageClient } from "@axa-sign/storage";
 import { app } from "./app";
 import { registerEventHandlers } from "./events/register";
-import { SigningService } from "./modules/signing/signing.service";
 import { CertificateService } from "./modules/certificates/certificate.service";
 
 const PORT = process.env.PORT || 3000;
 
 async function main() {
   // Wire domain events to side effects (email, webhooks, certificates)
-  registerEventHandlers(new SigningService(), new CertificateService());
+  registerEventHandlers(new CertificateService());
 
   await createStorageClient().ensureBucket();
   console.log(`[API] Storage bucket ready: ${process.env.STORAGE_BUCKET || "axa-sign"}`);

@@ -1,14 +1,22 @@
 import prisma from "@axa-sign/database";
 import {
   NotFoundError,
-  ForbiddenError,
+  BadRequestError,
   ConflictError,
-  generateId,
+  generateToken,
+  hashToken,
   paginate,
   paginationMeta,
 } from "@axa-sign/shared";
 import { transitionContract, type CreateContractInput, type UpdateContractInput } from "@axa-sign/domain";
 import { eventBus } from "@axa-sign/events";
+import { emailQueue } from "@axa-sign/queue";
+import { contractInvitationEmail } from "@axa-sign/notifications";
+import { AuditService } from "../audit/audit.service";
+
+const SESSION_EXPIRY_HOURS = 72;
+
+const auditService = new AuditService();
 
 export class ContractService {
   async create(organizationId: string, userId: string, input: CreateContractInput) {
@@ -89,35 +97,151 @@ export class ContractService {
     });
   }
 
-  async send(organizationId: string, contractId: string) {
-    const contract = await this.getById(organizationId, contractId);
+  async send(organizationId: string, contractId: string, userId: string) {
+    const contract = await prisma.contract.findFirst({
+      where: { id: contractId, organizationId },
+      include: {
+        participants: true,
+        currentVersion: { include: { document: true } },
+        creator: true,
+      },
+    });
+
+    if (!contract) throw new NotFoundError("Contract", contractId);
+
+    if (contract.status !== "DRAFT") {
+      throw new ConflictError("Can only send contracts in DRAFT status");
+    }
 
     const transition = transitionContract(contract.status, "SENT");
     if (!transition.valid) throw new ConflictError(transition.error!);
 
-    if (contract.participants.length === 0) {
-      throw new ConflictError("Contract must have at least one participant");
+    if (
+      !contract.currentVersionId ||
+      !contract.currentVersion?.isCurrent ||
+      !contract.currentVersion.document
+    ) {
+      throw new BadRequestError(
+        "Contract must have a current document before it can be sent"
+      );
     }
 
-    const updated = await prisma.contract.update({
-      where: { id: contractId },
-      data: { status: "SENT", sentAt: new Date() },
-    });
+    const signers = contract.participants.filter((p) => p.type === "SIGNER");
+    if (signers.length === 0) {
+      throw new BadRequestError(
+        "Contract must have at least one participant with type SIGNER before it can be sent"
+      );
+    }
 
-    // Create signing steps for each participant
-    const signers = contract.participants.filter(
+    const stepParticipants = contract.participants.filter(
       (p) => p.type === "SIGNER" || p.type === "APPROVER"
     );
+    const invitees = contract.participants.filter((p) => p.type !== "CC");
 
-    await prisma.signingStep.createMany({
-      data: signers.map((p, i) => ({
-        contractId,
-        participantId: p.id,
-        step: i + 1,
-        type: p.type === "APPROVER" ? "APPROVE" : "SIGN",
-        status: "WAITING",
-      })),
+    const expiresAt = new Date(
+      Date.now() + SESSION_EXPIRY_HOURS * 60 * 60 * 1000
+    );
+    const invitations = invitees.map((participant) => {
+      const token = generateToken(32);
+      return {
+        participant,
+        token,
+        tokenHash: hashToken(token),
+        expiresAt,
+      };
     });
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.contract.updateMany({
+        where: { id: contractId, organizationId, status: "DRAFT" },
+        data: { status: "SENT", sentAt: new Date() },
+      });
+
+      if (claimed.count !== 1) {
+        throw new ConflictError("Can only send contracts in DRAFT status");
+      }
+
+      for (const invitation of invitations) {
+        await tx.signingSession.create({
+          data: {
+            participantId: invitation.participant.id,
+            tokenHash: invitation.tokenHash,
+            expiresAt: invitation.expiresAt,
+          },
+        });
+      }
+
+      if (stepParticipants.length > 0) {
+        await tx.signingStep.createMany({
+          data: stepParticipants.map((participant, index) => ({
+            contractId,
+            participantId: participant.id,
+            step: index + 1,
+            type: participant.type === "APPROVER" ? "APPROVE" : "SIGN",
+            status: "WAITING",
+          })),
+        });
+      }
+
+      return tx.contract.findUniqueOrThrow({ where: { id: contractId } });
+    });
+
+    await auditService.recordEvent({
+      type: "contract.sent",
+      organizationId,
+      contractId,
+      userId,
+      data: {
+        participantIds: contract.participants.map((p) => p.id),
+        signerCount: signers.length,
+      },
+    });
+
+    const signingBaseUrl = process.env.SIGNING_URL || "http://localhost:5174";
+
+    try {
+      for (const invitation of invitations) {
+        const signingUrl = `${signingBaseUrl}/session/${invitation.token}`;
+        const { subject, html } = contractInvitationEmail({
+          senderName: `${contract.creator.firstName} ${contract.creator.lastName}`,
+          contractTitle: contract.title,
+          signingUrl,
+          expiresAt: invitation.expiresAt,
+        });
+
+        const notification = await prisma.notification.create({
+          data: {
+            type: "CONTRACT_INVITATION",
+            channel: "EMAIL",
+            subject,
+            body: html.replace(signingUrl, "[signing link]"),
+            organizationId,
+            deliveries: {
+              create: {
+                recipientEmail: invitation.participant.email,
+              },
+            },
+          },
+          include: { deliveries: true },
+        });
+
+        await emailQueue.add(
+          "send",
+          {
+            to: invitation.participant.email,
+            subject,
+            html,
+            notificationId: notification.deliveries[0].id,
+          },
+          { attempts: 3 }
+        );
+      }
+    } catch (error) {
+      console.error(
+        "[ContractService] Failed to queue invitation email:",
+        error instanceof Error ? error.message : error
+      );
+    }
 
     await eventBus.emit({
       type: "contract.sent",
