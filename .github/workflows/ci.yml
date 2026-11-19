@@ -85,12 +85,12 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Start MinIO and create CI bucket
+      - name: Start MinIO
         run: |
           docker run -d --name minio --network host \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:RELEASE.2025-09-07T16-13-09Z \
+            cgr.dev/chainguard/minio@sha256:ddfab4c402bf32e7701600d16d8c40dbccfab4c4e5340eef4c324394349c7926 \
             server /data --console-address ":9001"
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live > /dev/null; then
@@ -103,11 +103,35 @@ jobs:
             fi
             sleep 2
           done
-          docker run --rm --network host --entrypoint sh minio/mc:RELEASE.2025-08-13T08-35-41Z -c \
-            "mc alias set ci http://localhost:9000 minioadmin minioadmin && mc mb --ignore-existing ci/axa-sign-ci"
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Create MinIO CI bucket
+        run: |
+          node --input-type=module - <<'NODE'
+          import { S3Client, HeadBucketCommand, CreateBucketCommand } from '@aws-sdk/client-s3';
+
+          const client = new S3Client({
+            endpoint: 'http://localhost:9000',
+            region: 'us-east-1',
+            forcePathStyle: true,
+            credentials: {
+              accessKeyId: 'minioadmin',
+              secretAccessKey: 'minioadmin',
+            },
+          });
+
+          try {
+            await client.send(new HeadBucketCommand({ Bucket: 'axa-sign-ci' }));
+          } catch (error) {
+            if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+              await client.send(new CreateBucketCommand({ Bucket: 'axa-sign-ci' }));
+            } else {
+              throw error;
+            }
+          }
+          NODE
 
       - name: Generate Prisma client
         run: npm run db:generate
