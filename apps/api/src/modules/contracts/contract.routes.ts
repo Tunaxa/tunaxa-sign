@@ -73,7 +73,11 @@ router.patch("/:id", validate(UpdateSchema), async (req, res, next) => {
 
 router.post("/:id/send", async (req, res, next) => {
   try {
-    const contract = await service.send(req.user!.organizationId, req.params.id);
+    const contract = await service.send(
+      req.user!.organizationId,
+      req.params.id as string,
+      req.user!.sub
+    );
     res.json(contract);
   } catch (error) {
     next(error);

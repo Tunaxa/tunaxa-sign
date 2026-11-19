@@ -47,7 +47,7 @@ export interface ContractVersion {
 // ─── State Machine ────────────────────────────────────
 
 const TRANSITIONS: Record<ContractStatus, ContractStatus[]> = {
-  DRAFT: ["PREPARING", "CANCELLED"],
+  DRAFT: ["PREPARING", "SENT", "CANCELLED"],
   PREPARING: ["SENT", "CANCELLED"],
   SENT: ["VIEWED", "IN_PROGRESS", "DECLINED", "EXPIRED", "CANCELLED"],
   VIEWED: ["IN_PROGRESS", "DECLINED", "EXPIRED", "CANCELLED"],

@@ -1,78 +1,17 @@
 import { eventBus, type DomainEvent } from "@axa-sign/events";
 import { emailQueue, webhookQueue } from "@axa-sign/queue";
-import { contractInvitationEmail, contractCompletedEmail, contractReminderEmail } from "@axa-sign/notifications";
+import { contractCompletedEmail } from "@axa-sign/notifications";
 import prisma from "@axa-sign/database";
-import type { SigningService } from "../modules/signing/signing.service";
 import type { CertificateService } from "../modules/certificates/certificate.service";
 
 /**
  * Wires the domain event bus to side effects.
  * Registered once at API boot.
  */
-export function registerEventHandlers(
-  signingService: SigningService,
-  certificateService: CertificateService
-) {
-  // ── Contract sent → create signing sessions + send invite emails ──
+export function registerEventHandlers(certificateService: CertificateService) {
+  // ── Contract sent → webhook (sessions and invites are created by ContractService.send) ──
   eventBus.on("contract.sent", async (event) => {
-    const contract = await prisma.contract.findUnique({
-      where: { id: event.contractId },
-      include: {
-        participants: true,
-        creator: true,
-      },
-    });
-
-    if (!contract) return;
-
-    const URL = process.env.SIGNING_URL || "http://localhost:5174";
-
-    for (const participant of contract.participants) {
-      if (participant.type === "CC") continue; // no signing session for CC
-
-      const { token, expiresAt } = await signingService.createSession(
-        contract.id,
-        participant.id
-      );
-
-      const signingUrl = `${URL}/session/${token}`;
-      const { subject, html } = contractInvitationEmail({
-        senderName: `${contract.creator.firstName} ${contract.creator.lastName}`,
-        contractTitle: contract.title,
-        signingUrl,
-        expiresAt,
-      });
-
-      const notification = await prisma.notification.create({
-        data: {
-          type: "CONTRACT_INVITATION",
-          channel: "EMAIL",
-          subject,
-          body: html,
-          organizationId: contract.organizationId,
-          deliveries: {
-            create: {
-              recipientEmail: participant.email,
-            },
-          },
-        },
-        include: { deliveries: true },
-      });
-
-      await emailQueue.add(
-        "send",
-        {
-          to: participant.email,
-          subject,
-          html,
-          notificationId: notification.deliveries[0].id,
-        },
-        { attempts: 3 }
-      );
-    }
-
-    // Also emit to webhooks
-    await emitWebhook(event, contract.organizationId);
+    await emitWebhook(event, event.organizationId);
   });
 
   // ── Contract completed → generate certificate + CE email ──
