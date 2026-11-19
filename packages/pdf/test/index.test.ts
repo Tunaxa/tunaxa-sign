@@ -27,6 +27,10 @@ async function makePdf(pageCount: number): Promise<Buffer> {
   return Buffer.from(await pdf.save());
 }
 
+test("intentional CI failure proof", () => {
+  assert.equal(1, 2);
+});
+
 test("applySignatures seals a multipage PDF and embeds a PNG signature", async () => {
   const original = await makePdf(2);
   const result = await applySignatures(original, [
