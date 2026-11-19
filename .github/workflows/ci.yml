@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tunaxa
+          POSTGRES_PASSWORD: axa_secret
+          POSTGRES_DB: axa_sign_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tunaxa -d axa_sign_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      PORT: '3000'
+      API_URL: http://localhost:3000
+      WEB_URL: http://localhost:5173
+      SIGNING_URL: http://localhost:5174
+      ADMIN_URL: http://localhost:5175
+      POSTGRES_PORT: '5432'
+      DATABASE_URL: postgresql://tunaxa:axa_secret@localhost:5432/axa_sign_ci?schema=public
+      REDIS_URL: redis://localhost:6379
+      STORAGE_ENDPOINT: localhost
+      STORAGE_PORT: '9000'
+      STORAGE_BUCKET: axa-sign-ci
+      STORAGE_ACCESS_KEY: minioadmin
+      STORAGE_SECRET_KEY: minioadmin
+      STORAGE_USE_SSL: 'false'
+      JWT_SECRET: ci-jwt-secret-change-me
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      SESSION_SECRET: ci-session-secret-change-me
+      SEED_ADMIN_PASSWORD: CiAdmin123!
+      SEED_AGENT_PASSWORD: CiAgent123!
+      SEED_ALLOW_PRODUCTION: 'false'
+      SMTP_HOST: localhost
+      SMTP_PORT: '1025'
+      SMTP_USER: ''
+      SMTP_PASS: ''
+      SMTP_FROM: noreply@tunaxa.com
+      SIGNING_CERT_PATH: ./certs/signing.pem
+      SIGNING_KEY_PATH: ./certs/signing.key
+      WEBHOOK_SECRET: ci-webhook-secret-change-me
+      SENTRY_DSN: ''
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Start MinIO and create CI bucket
+        run: |
+          docker run -d --name minio --network host \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z \
+            server /data --console-address ":9001"
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/live > /dev/null; then
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "MinIO failed to become healthy"
+              docker logs minio
+              exit 1
+            fi
+            sleep 2
+          done
+          docker run --rm --network host --entrypoint sh minio/mc:RELEASE.2025-08-13T08-35-41Z -c \
+            "mc alias set ci http://localhost:9000 minioadmin minioadmin && mc mb --ignore-existing ci/axa-sign-ci"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Apply migrations to empty CI database
+        run: npm run db:migrate:deploy
+
+      - name: Typecheck
+        run: npx turbo typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm run test

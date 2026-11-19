@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - TUN2-2: Add the initial Prisma migration baseline and `db:migrate:deploy` / `db:migrate:status` scripts.
 - TUN2-3: Add an idempotent demo seed for the AXA organization, admin/agent users, NDA template roles/fields, and PDF stored in MinIO.
 - TUN2-4: Add a pdf-lib/`node:test` regression test for the PDF seal step in `packages/pdf`.
+- TUN2-48: Add a GitHub Actions CI workflow that installs dependencies, applies migrations to an empty database, typechecks, lints, builds and tests every PR and push to `dev`/`main`.
 
 ### Changed
 
