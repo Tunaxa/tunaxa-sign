@@ -98,6 +98,7 @@ export class TemplateEngine {
 
       const document = await this.generateDocument(
         tx,
+        organizationId,
         sourceDocument,
         template,
         variables,
@@ -178,6 +179,7 @@ export class TemplateEngine {
    */
   private async generateDocument(
     tx: Prisma.TransactionClient,
+    organizationId: string,
     sourceDocument: any,
     template: any,
     variables: Record<string, string>,
@@ -191,6 +193,7 @@ export class TemplateEngine {
         size: pdfBytes.length,
         sha256: documentSha256,
         storageKey: sourceDocument.storageKey, // cloned reference for now
+        organizationId,
         metadata: {
           templateId: template.id,
           variables,

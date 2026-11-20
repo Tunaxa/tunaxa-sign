@@ -230,6 +230,7 @@ export class SigningService {
             size: buffer.length,
             sha256: sha256After,
             storageKey: signedKey,
+            organizationId: contract.organizationId,
           },
         });
 

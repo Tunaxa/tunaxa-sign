@@ -81,7 +81,7 @@ export class DocumentService {
       }
 
       return {
-        document: await this.createDocument(file, hash, key),
+        document: await this.createDocument(organizationId, file, hash, key),
         version: null,
       };
     } catch (error) {
@@ -91,6 +91,7 @@ export class DocumentService {
   }
 
   private documentData(
+    organizationId: string,
     file: Express.Multer.File,
     hash: string,
     key: string
@@ -101,16 +102,18 @@ export class DocumentService {
       size: file.size,
       sha256: hash,
       storageKey: key,
+      organizationId,
     };
   }
 
   private async createDocument(
+    organizationId: string,
     file: Express.Multer.File,
     hash: string,
     key: string
   ) {
     return prisma.document.create({
-      data: this.documentData(file, hash, key),
+      data: this.documentData(organizationId, file, hash, key),
     });
   }
 
@@ -133,7 +136,7 @@ export class DocumentService {
       }
 
       const document = await tx.document.create({
-        data: this.documentData(file, hash, key),
+        data: this.documentData(organizationId, file, hash, key),
       });
 
       const latest = await tx.contractVersion.findFirst({
@@ -167,22 +170,22 @@ export class DocumentService {
     });
   }
 
-  async getById(documentId: string) {
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
+  async getById(organizationId: string, documentId: string) {
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, organizationId },
     });
     if (!document) throw new NotFoundError("Document", documentId);
     return document;
   }
 
-  async download(documentId: string) {
-    const document = await this.getById(documentId);
+  async download(organizationId: string, documentId: string) {
+    const document = await this.getById(organizationId, documentId);
     const buffer = await storage.download(document.storageKey);
     return { buffer, document };
   }
 
-  async delete(documentId: string) {
-    const document = await this.getById(documentId);
+  async delete(organizationId: string, documentId: string) {
+    const document = await this.getById(organizationId, documentId);
     await storage.delete(document.storageKey);
     await prisma.document.delete({ where: { id: documentId } });
   }

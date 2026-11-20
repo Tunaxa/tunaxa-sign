@@ -29,6 +29,11 @@ All notable changes to this project will be documented in this file.
 - TUN2-9: Create the `ContractVersion` in the same transaction as the contract, document and participants, set `Contract.currentVersionId` to the version id, and hash the stored PDF bytes instead of the template variables.
 - TUN2-7: Create a `ContractVersion` when a document is uploaded to a contract and set `Contract.currentVersionId`, so signed-document links resolve instead of returning 404.
 - TUN2-79: Allow DRAFT → SENT and make contract send create hashed 72-hour signing sessions and queue one invitation email per non-CC participant after the status, step and session transaction commits.
+- TUN2-81: Scope standalone documents to their organization; applying the new `add_document_organization_id` migration is required.
+
+### Security
+
+- TUN2-81: Return 404 for cross-organization document reads, downloads and deletes; applying the new `add_document_organization_id` migration is required.
 
 ### Known gaps
 
