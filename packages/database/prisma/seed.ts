@@ -399,6 +399,7 @@ function templateStorageKey(organizationId: string, version: number): string {
 
 async function upsertDocument(input: {
   id: string;
+  organizationId: string;
   name: string;
   storageKey: string;
   sha256: string;
@@ -414,6 +415,7 @@ async function upsertDocument(input: {
       size: input.size,
       sha256: input.sha256,
       storageKey: input.storageKey,
+      organizationId: input.organizationId,
       metadata: {
         seeded: true,
         templateId: input.templateId,
@@ -422,6 +424,7 @@ async function upsertDocument(input: {
     },
     create: {
       id: input.id,
+      organizationId: input.organizationId,
       name: input.name,
       mimeType: "application/pdf",
       size: input.size,
@@ -459,6 +462,7 @@ async function upsertTemplateVersion(
     const storageKey = templateStorageKey(organizationId, version);
     const document = await upsertDocument({
       id: "seed_nda_document_v1",
+      organizationId,
       name: "nda-template-v1.pdf",
       storageKey,
       sha256: pdfSha,
@@ -482,6 +486,7 @@ async function upsertTemplateVersion(
     const storageKey = templateStorageKey(organizationId, latest.version);
     await upsertDocument({
       id: latest.documentId,
+      organizationId,
       name: `nda-template-v${latest.version}.pdf`,
       storageKey,
       sha256: pdfSha,
@@ -497,6 +502,7 @@ async function upsertTemplateVersion(
   const storageKey = templateStorageKey(organizationId, version);
   const document = await upsertDocument({
     id: `seed_nda_document_v${version}`,
+    organizationId,
     name: `nda-template-v${version}.pdf`,
     storageKey,
     sha256: pdfSha,

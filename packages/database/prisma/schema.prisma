@@ -22,6 +22,7 @@ model Organization {
   users         User[]
   teams         Team[]
   contracts     Contract[]
+  documents     Document[]
   templates     Template[]
   apiKeys       ApiKey[]
   webhooks      WebhookEndpoint[]
@@ -150,12 +151,16 @@ model Document {
 
   storageKey String
 
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   metadata   Json     @default("{}")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   versions ContractVersion[]
 
+  @@index([organizationId])
   @@map("documents")
 }
 
