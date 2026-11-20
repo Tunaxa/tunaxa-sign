@@ -31,6 +31,7 @@ async function createContract(
 }
 
 async function attachVersion(
+  organizationId: string,
   contractId: string,
   userId: string,
   suffix: string,
@@ -43,6 +44,7 @@ async function attachVersion(
       size: 128,
       sha256: "a".repeat(64),
       storageKey: `test/tun2-79/${suffix}.pdf`,
+      organizationId,
     },
   });
   documentIds.push(document.id);
@@ -111,7 +113,13 @@ test("TUN2-79: contract send creates sessions, steps and invites", async (t) => 
         user.id,
         `TUN2-79 valid ${suffix}`
       );
-      await attachVersion(contract.id, user.id, `${suffix}-valid`, documentIds);
+      await attachVersion(
+        organization.id,
+        contract.id,
+        user.id,
+        `${suffix}-valid`,
+        documentIds
+      );
       const signer = await addParticipant(contract.id, `${suffix}-valid`, "SIGNER");
       const approver = await addParticipant(
         contract.id,
@@ -252,7 +260,13 @@ test("TUN2-79: contract send creates sessions, steps and invites", async (t) => 
         user.id,
         `TUN2-79 no signer ${suffix}`
       );
-      await attachVersion(contract.id, user.id, `${suffix}-nosigner`, documentIds);
+      await attachVersion(
+        organization.id,
+        contract.id,
+        user.id,
+        `${suffix}-nosigner`,
+        documentIds
+      );
       const viewer = await addParticipant(
         contract.id,
         `${suffix}-nosigner`,
@@ -287,7 +301,13 @@ test("TUN2-79: contract send creates sessions, steps and invites", async (t) => 
         user.id,
         `TUN2-79 twice ${suffix}`
       );
-      await attachVersion(contract.id, user.id, `${suffix}-twice`, documentIds);
+      await attachVersion(
+        organization.id,
+        contract.id,
+        user.id,
+        `${suffix}-twice`,
+        documentIds
+      );
       const signer = await addParticipant(
         contract.id,
         `${suffix}-twice`,
@@ -343,6 +363,7 @@ test("TUN2-79: contract send creates sessions, steps and invites", async (t) => 
         `TUN2-79 other ${suffix}`
       );
       await attachVersion(
+        otherOrganization.id,
         otherContract.id,
         otherUser.id,
         `${suffix}-other`,
@@ -379,6 +400,7 @@ test("TUN2-79: contract send creates sessions, steps and invites", async (t) => 
         `TUN2-79 atomic ${suffix}`
       );
       const version = await attachVersion(
+        organization.id,
         contract.id,
         user.id,
         `${suffix}-atomic`,

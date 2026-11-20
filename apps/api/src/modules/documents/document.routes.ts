@@ -32,7 +32,10 @@ router.post("/", upload.single("file"), async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   try {
-    const document = await service.getById(req.params.id);
+    const document = await service.getById(
+      req.user!.organizationId,
+      req.params.id
+    );
     res.json(document);
   } catch (error) {
     next(error);
@@ -41,7 +44,10 @@ router.get("/:id", async (req, res, next) => {
 
 router.get("/:id/download", async (req, res, next) => {
   try {
-    const { buffer, document } = await service.download(req.params.id);
+    const { buffer, document } = await service.download(
+      req.user!.organizationId,
+      req.params.id
+    );
     res.setHeader("Content-Type", document.mimeType);
     res.setHeader("Content-Disposition", `attachment; filename="${document.name}"`);
     res.send(buffer);
@@ -52,7 +58,7 @@ router.get("/:id/download", async (req, res, next) => {
 
 router.delete("/:id", async (req, res, next) => {
   try {
-    await service.delete(req.params.id);
+    await service.delete(req.user!.organizationId, req.params.id);
     res.status(204).send();
   } catch (error) {
     next(error);

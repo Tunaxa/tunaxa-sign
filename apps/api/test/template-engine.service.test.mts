@@ -58,6 +58,7 @@ test("TUN2-9: template generation links currentVersionId to an atomic ContractVe
         size: bytes.length,
         sha256: sha256(bytes),
         storageKey,
+        organizationId: organization.id,
       },
     });
     sourceDocumentId = sourceDocument.id;
