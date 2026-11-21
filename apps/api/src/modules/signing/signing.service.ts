@@ -1,10 +1,17 @@
 import prisma from "@axa-sign/database";
-import { hashToken, generateToken, generateId, NotFoundError, UnauthorizedError, ConflictError, sha256 } from "@axa-sign/shared";
-import { applySignatures } from "@axa-sign/pdf";
+import { hashToken, generateToken, generateId, AppError, BadRequestError, NotFoundError, UnauthorizedError, ConflictError, sha256 } from "@axa-sign/shared";
+import { applySignatures, validatePdf } from "@axa-sign/pdf";
 import { StorageClient, STORAGE_FOLDERS } from "@axa-sign/storage";
 import { eventBus } from "@axa-sign/events";
 
 const SESSION_EXPIRY_HOURS = 72;
+const MAX_SIGN_ATTEMPTS = 3;
+
+class CurrentVersionConflict extends Error {}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 const storage = new StorageClient({
   endpoint: process.env.STORAGE_ENDPOINT || "localhost",
@@ -169,47 +176,54 @@ export class SigningService {
     if (!session.authenticatedAt) {
       throw new UnauthorizedError("Session not authenticated");
     }
-
-    const { contract, id: participantId, name: signerName } = session.participant;
-
-    // Load current document for hashing + signature application
-    const currentVersion = await prisma.contractVersion.findFirst({
-      where: { contractId: contract.id, isCurrent: true },
-      include: { document: true },
-    });
-
-    let documentHashBefore = "no-document";
-    if (currentVersion?.document) {
-      try {
-        const original = await storage.download(currentVersion.document.storageKey);
-        documentHashBefore = sha256(original);
-      } catch {
-        documentHashBefore = currentVersion.sha256 || "unknown";
-      }
+    if (session.participant.status === "SIGNED") {
+      throw new ConflictError("Participant has already signed");
+    }
+    if (signatureData.fieldX === undefined || signatureData.fieldY === undefined) {
+      throw new BadRequestError("fieldX and fieldY are required to sign a PDF");
     }
 
-    // Create signature
-    const signature = await prisma.signature.create({
-      data: {
-        contractId: session.participant.contractId,
-        participantId,
-        type: signatureData.type as any,
-        imageData: signatureData.imageData,
-        fieldX: signatureData.fieldX,
-        fieldY: signatureData.fieldY,
-        page: signatureData.page,
-      },
-    });
+    const { contract, id: participantId, name: signerName } = session.participant;
+    let conflictAttempts = 0;
 
-    // Apply the signature to the PDF
-    if (currentVersion?.document && signatureData.fieldX !== undefined) {
+    while (conflictAttempts < MAX_SIGN_ATTEMPTS) {
+      const baseVersion = await prisma.contractVersion.findFirst({
+        where: { contractId: contract.id, isCurrent: true },
+        include: { document: true },
+      });
+
+      if (!baseVersion?.document) {
+        throw new NotFoundError("Document", contract.id);
+      }
+
+      let baseBytes: Buffer;
       try {
-        const original = await storage.download(currentVersion.document.storageKey);
-        const { buffer, sha256After } = await applySignatures(original, [
+        baseBytes = await storage.download(baseVersion.document.storageKey);
+      } catch (error) {
+        throw new AppError(
+          `Unable to read the current document: ${errorMessage(error)}`,
+          "DOCUMENT_READ_FAILED",
+          500
+        );
+      }
+      const documentHashBefore = sha256(baseBytes);
+
+      const pdfCheck = await validatePdf(baseBytes);
+      if (!pdfCheck.valid) {
+        throw new AppError(
+          `PDF is unreadable: ${pdfCheck.error || "invalid PDF"}`,
+          "UNREADABLE_PDF",
+          422
+        );
+      }
+
+      let sealed: Awaited<ReturnType<typeof applySignatures>>;
+      try {
+        sealed = await applySignatures(baseBytes, [
           {
             page: signatureData.page || 1,
             x: signatureData.fieldX,
-            y: signatureData.fieldY ?? signatureData.fieldX,
+            y: signatureData.fieldY,
             width: 160,
             height: 50,
             name: signerName,
@@ -217,85 +231,148 @@ export class SigningService {
             imageData: signatureData.imageData,
           },
         ]);
-
-        // Store the signed PDF in the signed/ folder
-        const signedKey = `${STORAGE_FOLDERS.SIGNED}/${contract.organizationId}/${contract.id}/v${currentVersion.version}-signed-${generateId()}.pdf`;
-        await storage.upload(signedKey, buffer, "application/pdf");
-
-        // Persist signed document as a new Document record
-        const signedDoc = await prisma.document.create({
-          data: {
-            name: `${contract.title} - signed.pdf`,
-            mimeType: "application/pdf",
-            size: buffer.length,
-            sha256: sha256After,
-            storageKey: signedKey,
-            organizationId: contract.organizationId,
-          },
-        });
-
-        // Update participant evidence with real hashes
-        await prisma.signatureEvidence.create({
-          data: {
-            signatureId: signature.id,
-            documentHashBefore,
-            documentHashAfter: sha256After,
-            authenticationMethod: "session-token",
-            ipAddress: session.ipAddress,
-            userAgent: session.userAgent,
-          },
-        });
       } catch (error) {
-        // Record evidence without PDF modification if rendering fails
-        await prisma.signatureEvidence.create({
-          data: {
-            signatureId: signature.id,
-            documentHashBefore,
-            documentHashAfter: documentHashBefore,
-            authenticationMethod: "session-token",
-            ipAddress: session.ipAddress,
-            userAgent: session.userAgent,
-          },
-        });
+        throw new AppError(
+          `Failed to seal PDF: ${errorMessage(error)}`,
+          "PDF_SEAL_FAILED",
+          500
+        );
       }
-    } else {
-      // No PDF to modify — record evidence only
-      await prisma.signatureEvidence.create({
-        data: {
-          signatureId: signature.id,
-          documentHashBefore,
-          documentHashAfter: documentHashBefore,
-          authenticationMethod: "session-token",
-          ipAddress: session.ipAddress,
-          userAgent: session.userAgent,
-        },
-      });
+
+      const nextVersionNumber = baseVersion.version + 1;
+      const signedKey = `${STORAGE_FOLDERS.SIGNED}/${contract.organizationId}/${contract.id}/v${nextVersionNumber}-signed-${generateId()}.pdf`;
+      try {
+        await storage.upload(signedKey, sealed.buffer, "application/pdf");
+      } catch (error) {
+        await storage.delete(signedKey).catch(() => undefined);
+        throw new AppError(
+          `Failed to store signed PDF: ${errorMessage(error)}`,
+          "SIGNED_PDF_UPLOAD_FAILED",
+          500
+        );
+      }
+
+      try {
+        const committed = await prisma.$transaction(async (tx) => {
+          const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "contracts" WHERE id = ${contract.id} FOR UPDATE`;
+          if (locked.length !== 1) throw new NotFoundError("Contract", contract.id);
+
+          const current = await tx.contract.findUniqueOrThrow({
+            where: { id: contract.id },
+            select: { currentVersionId: true },
+          });
+          if (current.currentVersionId !== baseVersion.id) {
+            throw new CurrentVersionConflict();
+          }
+
+          const participant = await tx.participant.findUniqueOrThrow({
+            where: { id: participantId },
+            select: { status: true },
+          });
+          if (participant.status === "SIGNED") {
+            throw new ConflictError("Participant has already signed");
+          }
+
+          const latest = await tx.contractVersion.findFirst({
+            where: { contractId: contract.id },
+            orderBy: { version: "desc" },
+            select: { version: true },
+          });
+          const versionNumber = (latest?.version ?? 0) + 1;
+          if (versionNumber !== nextVersionNumber) {
+            throw new CurrentVersionConflict();
+          }
+
+          const signature = await tx.signature.create({
+            data: {
+              contractId: contract.id,
+              participantId,
+              type: signatureData.type as any,
+              imageData: signatureData.imageData,
+              fieldX: signatureData.fieldX,
+              fieldY: signatureData.fieldY,
+              page: signatureData.page,
+            },
+          });
+
+          const signedDocument = await tx.document.create({
+            data: {
+              name: `${contract.title} - signed.pdf`,
+              mimeType: "application/pdf",
+              size: sealed.buffer.length,
+              sha256: sealed.sha256After,
+              storageKey: signedKey,
+              organizationId: contract.organizationId,
+            },
+          });
+
+          await tx.contractVersion.updateMany({
+            where: { contractId: contract.id, isCurrent: true },
+            data: { isCurrent: false },
+          });
+
+          const version = await tx.contractVersion.create({
+            data: {
+              contractId: contract.id,
+              version: versionNumber,
+              documentId: signedDocument.id,
+              sha256: sealed.sha256After,
+              isCurrent: true,
+              createdBy: participantId,
+            },
+          });
+
+          await tx.contract.update({
+            where: { id: contract.id },
+            data: { currentVersionId: version.id },
+          });
+
+          await tx.signatureEvidence.create({
+            data: {
+              signatureId: signature.id,
+              documentHashBefore,
+              documentHashAfter: sealed.sha256After,
+              authenticationMethod: "session-token",
+              ipAddress: session.ipAddress,
+              userAgent: session.userAgent,
+            },
+          });
+
+          await tx.participant.update({
+            where: { id: participantId },
+            data: { status: "SIGNED", signedAt: new Date() },
+          });
+
+          await tx.signingSession.update({
+            where: { id: session.id },
+            data: { completedAt: new Date() },
+          });
+
+          return { signature, version };
+        });
+
+        await eventBus.emit({
+          type: "participant.signed",
+          organizationId: contract.organizationId,
+          contractId: contract.id,
+          participantId,
+          occurredAt: new Date(),
+        });
+
+        await this.maybeCompleteContract(contract.id, contract.organizationId);
+
+        return committed.signature;
+      } catch (error) {
+        await storage.delete(signedKey).catch(() => undefined);
+        if (error instanceof CurrentVersionConflict) {
+          conflictAttempts += 1;
+          continue;
+        }
+        throw error;
+      }
     }
 
-    // Update participant status
-    await prisma.participant.update({
-      where: { id: participantId },
-      data: { status: "SIGNED", signedAt: new Date() },
-    });
-
-    // Mark session complete
-    await prisma.signingSession.update({
-      where: { id: session.id },
-      data: { completedAt: new Date() },
-    });
-
-    await eventBus.emit({
-      type: "participant.signed",
-      organizationId: contract.organizationId,
-      contractId: session.participant.contractId,
-      participantId,
-      occurredAt: new Date(),
-    });
-
-    // Check if all signers have signed → complete the contract
-    await this.maybeCompleteContract(contract.id, contract.organizationId);
-
-    return signature;
+    throw new ConflictError("Concurrent signing conflict; please retry");
   }
 
   private async maybeCompleteContract(contractId: string, organizationId: string) {
