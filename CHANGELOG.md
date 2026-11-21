@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - TUN2-1: Pin the MinIO image to `cgr.dev/chainguard/minio@sha256:ddfab4c402bf32e7701600d16d8c40dbccfab4c4e5340eef4c324394349c7926`.
 - TUN2-1: Raise Turbo dev concurrency to 16 and set `envMode` to `loose` for local development.
 - TUN2-2: Replace the `db:push` development workflow with Prisma migrations and remove the `db:push` scripts.
+- TUN2-8: Chain each signature into a new contract version so later signers sign the latest sealed PDF instead of the original document.
 
 ### Fixed
 
@@ -34,6 +35,7 @@ All notable changes to this project will be documented in this file.
 ### Security
 
 - TUN2-81: Return 404 for cross-organization document reads, downloads and deletes; applying the new `add_document_organization_id` migration is required.
+- TUN2-8: Prevent concurrent signers from overwriting earlier signatures and fail signing when coordinates are missing, the PDF is unreadable, or sealing/storage fails instead of recording evidence-only success.
 
 ### Known gaps
 
