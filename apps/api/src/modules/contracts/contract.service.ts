@@ -18,6 +18,103 @@ const SESSION_EXPIRY_HOURS = 72;
 
 const auditService = new AuditService();
 
+export interface InvitationParticipant {
+  id: string;
+  name: string;
+  email: string;
+  type: string;
+  signingOrder: number;
+}
+
+export interface Invitation {
+  participant: InvitationParticipant;
+  token: string;
+  expiresAt: Date;
+}
+
+export function buildInvitations(participants: InvitationParticipant[]): Invitation[] {
+  const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 60 * 60 * 1000);
+  return participants.map((participant) => {
+    const token = generateToken(32);
+    return { participant, token, expiresAt };
+  });
+}
+
+export async function queueInvitationEmails(
+  invitations: Invitation[],
+  context: {
+    organizationId: string;
+    contractId: string;
+    contractTitle: string;
+    senderName: string;
+  }
+): Promise<void> {
+  if (invitations.length === 0) return;
+
+  const signingBaseUrl = process.env.SIGNING_URL || "http://localhost:5174";
+
+  try {
+    for (const invitation of invitations) {
+      const signingUrl = `${signingBaseUrl}/session/${invitation.token}`;
+      const { subject, html } = contractInvitationEmail({
+        senderName: context.senderName,
+        contractTitle: context.contractTitle,
+        signingUrl,
+        expiresAt: invitation.expiresAt,
+      });
+
+      const notification = await prisma.notification.create({
+        data: {
+          type: "CONTRACT_INVITATION",
+          channel: "EMAIL",
+          subject,
+          body: html.replace(signingUrl, "[signing link]"),
+          organizationId: context.organizationId,
+          deliveries: {
+            create: {
+              recipientEmail: invitation.participant.email,
+            },
+          },
+        },
+        include: { deliveries: true },
+      });
+
+      await emailQueue.add(
+        "send",
+        {
+          to: invitation.participant.email,
+          subject,
+          html,
+          notificationId: notification.deliveries[0].id,
+        },
+        { attempts: 3 }
+      );
+    }
+  } catch (error) {
+    console.error(
+      "[ContractService] Failed to queue invitation email:",
+      error instanceof Error ? error.message : error
+    );
+  }
+}
+
+export async function recordInvitationAudit(
+  invitations: Invitation[],
+  context: { organizationId: string; contractId: string }
+): Promise<void> {
+  for (const invitation of invitations) {
+    await auditService.recordEvent({
+      type: "participant.invited",
+      organizationId: context.organizationId,
+      contractId: context.contractId,
+      data: {
+        participantId: invitation.participant.id,
+        signingOrder: invitation.participant.signingOrder,
+      },
+    });
+  }
+}
+
 export class ContractService {
   async create(organizationId: string, userId: string, input: CreateContractInput) {
     const contract = await prisma.contract.create({
@@ -133,23 +230,16 @@ export class ContractService {
       );
     }
 
-    const stepParticipants = contract.participants.filter(
-      (p) => p.type === "SIGNER" || p.type === "APPROVER"
+    const stepParticipants = contract.participants
+      .filter((p) => p.type === "SIGNER" || p.type === "APPROVER")
+      .sort(
+        (a, b) => a.signingOrder - b.signingOrder || a.id.localeCompare(b.id)
+      );
+    const firstOrder = stepParticipants[0].signingOrder;
+    const firstGroup = stepParticipants.filter(
+      (participant) => participant.signingOrder === firstOrder
     );
-    const invitees = contract.participants.filter((p) => p.type !== "CC");
-
-    const expiresAt = new Date(
-      Date.now() + SESSION_EXPIRY_HOURS * 60 * 60 * 1000
-    );
-    const invitations = invitees.map((participant) => {
-      const token = generateToken(32);
-      return {
-        participant,
-        token,
-        tokenHash: hashToken(token),
-        expiresAt,
-      };
-    });
+    const invitations = buildInvitations(firstGroup);
 
     const updated = await prisma.$transaction(async (tx) => {
       const claimed = await tx.contract.updateMany({
@@ -165,7 +255,7 @@ export class ContractService {
         await tx.signingSession.create({
           data: {
             participantId: invitation.participant.id,
-            tokenHash: invitation.tokenHash,
+            tokenHash: hashToken(invitation.token),
             expiresAt: invitation.expiresAt,
           },
         });
@@ -197,51 +287,12 @@ export class ContractService {
       },
     });
 
-    const signingBaseUrl = process.env.SIGNING_URL || "http://localhost:5174";
-
-    try {
-      for (const invitation of invitations) {
-        const signingUrl = `${signingBaseUrl}/session/${invitation.token}`;
-        const { subject, html } = contractInvitationEmail({
-          senderName: `${contract.creator.firstName} ${contract.creator.lastName}`,
-          contractTitle: contract.title,
-          signingUrl,
-          expiresAt: invitation.expiresAt,
-        });
-
-        const notification = await prisma.notification.create({
-          data: {
-            type: "CONTRACT_INVITATION",
-            channel: "EMAIL",
-            subject,
-            body: html.replace(signingUrl, "[signing link]"),
-            organizationId,
-            deliveries: {
-              create: {
-                recipientEmail: invitation.participant.email,
-              },
-            },
-          },
-          include: { deliveries: true },
-        });
-
-        await emailQueue.add(
-          "send",
-          {
-            to: invitation.participant.email,
-            subject,
-            html,
-            notificationId: notification.deliveries[0].id,
-          },
-          { attempts: 3 }
-        );
-      }
-    } catch (error) {
-      console.error(
-        "[ContractService] Failed to queue invitation email:",
-        error instanceof Error ? error.message : error
-      );
-    }
+    await queueInvitationEmails(invitations, {
+      organizationId,
+      contractId,
+      contractTitle: contract.title,
+      senderName: `${contract.creator.firstName} ${contract.creator.lastName}`,
+    });
 
     await eventBus.emit({
       type: "contract.sent",

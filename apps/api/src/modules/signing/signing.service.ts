@@ -1,11 +1,20 @@
-import prisma from "@axa-sign/database";
+import prisma, { type Prisma } from "@axa-sign/database";
 import { hashToken, generateToken, generateId, AppError, BadRequestError, NotFoundError, UnauthorizedError, ConflictError, sha256 } from "@axa-sign/shared";
 import { applySignatures, validatePdf } from "@axa-sign/pdf";
 import { StorageClient, STORAGE_FOLDERS } from "@axa-sign/storage";
 import { eventBus } from "@axa-sign/events";
+import { AuditService } from "../audit/audit.service";
+import {
+  queueInvitationEmails,
+  recordInvitationAudit,
+  type Invitation,
+} from "../contracts/contract.service";
 
 const SESSION_EXPIRY_HOURS = 72;
 const MAX_SIGN_ATTEMPTS = 3;
+const ACTION_PARTICIPANT_TYPES: Array<"SIGNER" | "APPROVER"> = ["SIGNER", "APPROVER"];
+
+const auditService = new AuditService();
 
 class CurrentVersionConflict extends Error {}
 
@@ -23,6 +32,57 @@ const storage = new StorageClient({
 });
 
 export class SigningService {
+  private async createSessionRecord(
+    participant: { id: string; contractId: string },
+    client: Prisma.TransactionClient | typeof prisma = prisma
+  ): Promise<{ created: boolean; token?: string; expiresAt: Date }> {
+    const now = new Date();
+    const existing = await client.signingSession.findFirst({
+      where: {
+        participantId: participant.id,
+        completedAt: null,
+        expiresAt: { gt: now },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existing) {
+      return { created: false, expiresAt: existing.expiresAt };
+    }
+
+    const expiresAt = new Date(now.getTime() + SESSION_EXPIRY_HOURS * 60 * 60 * 1000);
+    const token = generateToken(32);
+    await client.signingSession.create({
+      data: {
+        participantId: participant.id,
+        tokenHash: hashToken(token),
+        expiresAt,
+      },
+    });
+
+    return { created: true, token, expiresAt };
+  }
+
+  private async assertSigningTurn(
+    client: Prisma.TransactionClient | typeof prisma,
+    contractId: string,
+    signingOrder: number
+  ) {
+    const earlierSigner = await client.participant.findFirst({
+      where: {
+        contractId,
+        type: { in: ACTION_PARTICIPANT_TYPES },
+        signingOrder: { lt: signingOrder },
+        status: { not: "SIGNED" },
+      },
+      select: { id: true },
+    });
+
+    if (earlierSigner) {
+      throw new ConflictError("It is not your turn to sign yet");
+    }
+  }
+
   async createSession(contractId: string, participantId: string) {
     const participant = await prisma.participant.findFirst({
       where: { id: participantId, contractId },
@@ -34,27 +94,15 @@ export class SigningService {
       throw new ConflictError("Contract is not in a signable state");
     }
 
-    const { token, hash } = (() => {
-      const t = generateToken(32);
-      const h = hashToken(t);
-      return { token: t, hash: h };
-    })();
-
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + SESSION_EXPIRY_HOURS);
-
-    await prisma.signingSession.create({
-      data: {
-        participantId: participant.id,
-        tokenHash: hash,
-        expiresAt,
-      },
-    });
+    const result = await this.createSessionRecord(participant);
+    if (!result.created || !result.token) {
+      throw new ConflictError("An active signing session already exists");
+    }
 
     return {
-      token,
-      signingUrl: `${process.env.SIGNING_URL || "http://localhost:5174"}/session/${token}`,
-      expiresAt,
+      token: result.token,
+      signingUrl: `${process.env.SIGNING_URL || "http://localhost:5174"}/session/${result.token}`,
+      expiresAt: result.expiresAt,
     };
   }
 
@@ -167,7 +215,7 @@ export class SigningService {
       where: { tokenHash },
       include: {
         participant: {
-          include: { contract: true },
+          include: { contract: { include: { creator: true } } },
         },
       },
     });
@@ -182,6 +230,12 @@ export class SigningService {
     if (signatureData.fieldX === undefined || signatureData.fieldY === undefined) {
       throw new BadRequestError("fieldX and fieldY are required to sign a PDF");
     }
+
+    await this.assertSigningTurn(
+      prisma,
+      session.participant.contractId,
+      session.participant.signingOrder
+    );
 
     const { contract, id: participantId, name: signerName } = session.participant;
     let conflictAttempts = 0;
@@ -273,6 +327,8 @@ export class SigningService {
             throw new ConflictError("Participant has already signed");
           }
 
+          await this.assertSigningTurn(tx, contract.id, session.participant.signingOrder);
+
           const latest = await tx.contractVersion.findFirst({
             where: { contractId: contract.id },
             orderBy: { version: "desc" },
@@ -348,7 +404,66 @@ export class SigningService {
             data: { completedAt: new Date() },
           });
 
-          return { signature, version };
+          const currentGroup = await tx.participant.findMany({
+            where: {
+              contractId: contract.id,
+              type: { in: ACTION_PARTICIPANT_TYPES },
+              signingOrder: session.participant.signingOrder,
+            },
+            select: { status: true },
+          });
+          const groupComplete = currentGroup.every(
+            (candidate) => candidate.status === "SIGNED"
+          );
+
+          const invitations: Invitation[] = [];
+          if (groupComplete) {
+            const nextOrder = await tx.participant.findFirst({
+              where: {
+                contractId: contract.id,
+                type: { in: ACTION_PARTICIPANT_TYPES },
+                signingOrder: { gt: session.participant.signingOrder },
+              },
+              orderBy: { signingOrder: "asc" },
+              select: { signingOrder: true },
+            });
+
+            if (nextOrder) {
+              const nextGroup = await tx.participant.findMany({
+                where: {
+                  contractId: contract.id,
+                  type: { in: ACTION_PARTICIPANT_TYPES },
+                  signingOrder: nextOrder.signingOrder,
+                },
+                orderBy: { id: "asc" },
+              });
+
+              for (const participant of nextGroup) {
+                const result = await this.createSessionRecord(participant, tx);
+                if (result.created && result.token) {
+                  invitations.push({
+                    participant,
+                    token: result.token,
+                    expiresAt: result.expiresAt,
+                  });
+                }
+              }
+            }
+          }
+
+          return { signature, version, invitations };
+        });
+
+        const invitations = committed.invitations;
+        await queueInvitationEmails(invitations, {
+          organizationId: contract.organizationId,
+          contractId: contract.id,
+          contractTitle: contract.title,
+          senderName: `${contract.creator.firstName} ${contract.creator.lastName}`,
+        });
+        await recordInvitationAudit(invitations, {
+          organizationId: contract.organizationId,
+          contractId: contract.id,
         });
 
         await eventBus.emit({
@@ -376,44 +491,57 @@ export class SigningService {
   }
 
   private async maybeCompleteContract(contractId: string, organizationId: string) {
-    const [pending, total] = await Promise.all([
-      prisma.participant.count({
-        where: {
-          contractId,
-          type: { in: ["SIGNER", "APPROVER"] },
-          status: { not: "SIGNED" },
-        },
-      }),
-      prisma.participant.count({
-        where: {
-          contractId,
-          type: { in: ["SIGNER", "APPROVER"] },
-        },
-      }),
-    ]);
+    const claimed = await prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "contracts" WHERE id = ${contractId} FOR UPDATE`;
+      if (locked.length !== 1) return false;
 
-    const hasSignable = total > 0;
+      const contract = await tx.contract.findUniqueOrThrow({
+        where: { id: contractId },
+        select: { status: true },
+      });
+      if (contract.status === "COMPLETED") return false;
 
-    if (hasSignable && pending === 0) {
-      await prisma.$transaction([
-        prisma.contract.update({
-          where: { id: contractId },
-          data: { status: "COMPLETED", completedAt: new Date() },
+      const [pending, total] = await Promise.all([
+        tx.participant.count({
+          where: {
+            contractId,
+            type: { in: ACTION_PARTICIPANT_TYPES },
+            status: { not: "SIGNED" },
+          },
         }),
-        prisma.signingStep.updateMany({
-          where: { contractId, status: "WAITING" },
-          data: { status: "COMPLETED", completedAt: new Date() },
+        tx.participant.count({
+          where: {
+            contractId,
+            type: { in: ACTION_PARTICIPANT_TYPES },
+          },
         }),
       ]);
 
-      await eventBus.emit({
-        type: "contract.completed",
-        organizationId,
-        contractId,
-        participantIds: [],
-        documentId: "",
-        occurredAt: new Date(),
+      if (total === 0 || pending !== 0) return false;
+
+      const updated = await tx.contract.updateMany({
+        where: { id: contractId, status: { not: "COMPLETED" } },
+        data: { status: "COMPLETED", completedAt: new Date() },
       });
-    }
+      if (updated.count !== 1) return false;
+
+      await tx.signingStep.updateMany({
+        where: { contractId, status: "WAITING" },
+        data: { status: "COMPLETED", completedAt: new Date() },
+      });
+
+      return true;
+    });
+
+    if (!claimed) return;
+
+    await eventBus.emit({
+      type: "contract.completed",
+      organizationId,
+      contractId,
+      participantIds: [],
+      documentId: "",
+      occurredAt: new Date(),
+    });
   }
 }

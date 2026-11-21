@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - TUN2-1: Raise Turbo dev concurrency to 16 and set `envMode` to `loose` for local development.
 - TUN2-2: Replace the `db:push` development workflow with Prisma migrations and remove the `db:push` scripts.
 - TUN2-8: Chain each signature into a new contract version so later signers sign the latest sealed PDF instead of the original document.
+- TUN2-10: Invitations are now sequential by signingOrder; VIEWER and CC no longer receive signing links.
 
 ### Fixed
 
@@ -31,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - TUN2-7: Create a `ContractVersion` when a document is uploaded to a contract and set `Contract.currentVersionId`, so signed-document links resolve instead of returning 404.
 - TUN2-79: Allow DRAFT → SENT and make contract send create hashed 72-hour signing sessions and queue one invitation email per non-CC participant after the status, step and session transaction commits.
 - TUN2-81: Scope standalone documents to their organization; applying the new `add_document_organization_id` migration is required.
+- TUN2-10: Enforce sequential signing order with completion exactly once per contract.
 
 ### Security
 
