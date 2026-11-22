@@ -71,7 +71,8 @@ async function attachVersion(
 async function addParticipant(
   contractId: string,
   suffix: string,
-  type: "SIGNER" | "APPROVER" | "CC" | "VIEWER"
+  type: "SIGNER" | "APPROVER" | "CC" | "VIEWER",
+  signingOrder = 0
 ) {
   return prisma.participant.create({
     data: {
@@ -79,7 +80,7 @@ async function addParticipant(
       name: `TUN2-79 ${type} ${suffix}`,
       email: `tun2-79-${type.toLowerCase()}-${suffix}@example.test`,
       type,
-      signingOrder: 0,
+      signingOrder,
     },
   });
 }
@@ -120,11 +121,17 @@ test("TUN2-79: contract send creates sessions, steps and invites", async (t) => 
         `${suffix}-valid`,
         documentIds
       );
-      const signer = await addParticipant(contract.id, `${suffix}-valid`, "SIGNER");
+      const signer = await addParticipant(
+        contract.id,
+        `${suffix}-valid`,
+        "SIGNER",
+        1
+      );
       const approver = await addParticipant(
         contract.id,
         `${suffix}-valid`,
-        "APPROVER"
+        "APPROVER",
+        2
       );
 
       const updated = await service.send(
@@ -139,7 +146,8 @@ test("TUN2-79: contract send creates sessions, steps and invites", async (t) => 
       const sessions = await prisma.signingSession.findMany({
         where: { participantId: { in: [signer.id, approver.id] } },
       });
-      assert.equal(sessions.length, 2);
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0].participantId, signer.id);
 
       for (const session of sessions) {
         assert.match(session.tokenHash, /^[a-f0-9]{64}$/);
@@ -168,7 +176,11 @@ test("TUN2-79: contract send creates sessions, steps and invites", async (t) => 
         },
         include: { deliveries: true },
       });
-      assert.equal(notifications.length, 2);
+      assert.equal(notifications.length, 1);
+      assert.equal(
+        notifications[0].deliveries[0].recipientEmail,
+        signer.email
+      );
       assert.ok(
         notifications.every(
           (notification) =>
@@ -189,7 +201,7 @@ test("TUN2-79: contract send creates sessions, steps and invites", async (t) => 
             notification.deliveries[0]?.id === job.data.notificationId
         )
       );
-      assert.equal(inviteJobs.length, 2);
+      assert.equal(inviteJobs.length, 1);
       for (const job of inviteJobs) {
         queuedNotificationIds.push(job.data.notificationId);
 

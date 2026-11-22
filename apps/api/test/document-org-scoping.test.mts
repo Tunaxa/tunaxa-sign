@@ -15,6 +15,7 @@ const { default: prisma } = await import("@axa-sign/database");
 const { sha256 } = await import("@axa-sign/crypto");
 const { createStorageClient, STORAGE_FOLDERS } = await import("@axa-sign/storage");
 const { generateCertificate } = await import("@axa-sign/pdf");
+const { emailQueue, getRedisConnection } = await import("@axa-sign/queue");
 const { DocumentService } = await import(
   "../src/modules/documents/document.service.js"
 );
@@ -305,6 +306,8 @@ test("TUN2-81: documents are scoped to their organization", async (t) => {
       } catch {}
     }
 
+    await emailQueue.close().catch(() => undefined);
+    await getRedisConnection().quit().catch(() => undefined);
     await prisma.$disconnect();
   }
 });
