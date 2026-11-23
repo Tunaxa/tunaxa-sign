@@ -16,8 +16,10 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@axa-sign/ui": ["../../packages/ui/src/index.ts"],
+      "@axa-sign/ui/*": ["../../packages/ui/src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "../../packages/ui/src"]
 }

@@ -12,7 +12,11 @@
     "jsx": "react-jsx",
     "strict": true,
     "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"] }
+    "paths": {
+      "@/*": ["./src/*"],
+      "@axa-sign/ui": ["../../packages/ui/src/index.ts"],
+      "@axa-sign/ui/*": ["../../packages/ui/src/*"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../../packages/ui/src"]
 }

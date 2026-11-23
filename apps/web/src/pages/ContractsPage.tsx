@@ -1,24 +1,40 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useContracts, useCreateContract } from "@/hooks/use-contracts";
-import { cn } from "@/lib/cn";
-import { Plus, FileText } from "lucide-react";
+import {
+  Button,
+  Input,
+  StatusBadge,
+  Card,
+  TableSkeleton,
+  EmptyState,
+  PageHeader,
+} from "@axa-sign/ui";
+import {
+  Plus,
+  FileText,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Users,
+  Calendar,
+} from "lucide-react";
 import { format } from "date-fns";
 
-const STATUS_STYLES: Record<string, string> = {
-  DRAFT: "bg-gray-100 text-gray-700",
-  SENT: "bg-blue-100 text-blue-700",
-  VIEWED: "bg-yellow-100 text-yellow-700",
-  IN_PROGRESS: "bg-orange-100 text-orange-700",
-  COMPLETED: "bg-green-100 text-green-700",
-  DECLINED: "bg-red-100 text-red-700",
-  EXPIRED: "bg-gray-100 text-gray-500",
-  CANCELLED: "bg-gray-100 text-gray-500",
-};
+const STATUS_FILTERS = [
+  { label: "All", value: undefined },
+  { label: "Draft", value: "DRAFT" },
+  { label: "Sent", value: "SENT" },
+  { label: "In Progress", value: "IN_PROGRESS" },
+  { label: "Completed", value: "COMPLETED" },
+  { label: "Declined", value: "DECLINED" },
+];
 
 export function ContractsPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState("");
 
@@ -28,170 +44,249 @@ export function ContractsPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    await createContract.mutateAsync({ title: newTitle });
+    await createContract.mutateAsync({ title: newTitle.trim() });
     setNewTitle("");
     setShowCreate(false);
   };
 
+  const filteredContracts = data?.data.filter((contract) => {
+    if (!searchQuery) return true;
+    return contract.title.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Contracts</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage your signing contracts
-          </p>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        title="Contracts & Agreements"
+        description="Create, send, track and manage electronic signatures in real-time."
+        action={
+          <Button
+            onClick={() => setShowCreate(true)}
+            leftIcon={<Plus size={16} />}
+            variant="primary"
+          >
+            New Contract
+          </Button>
+        }
+      />
+
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* Status tabs */}
+        <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-slate-100 p-1">
+          {STATUS_FILTERS.map((f) => {
+            const isActive = statusFilter === f.value;
+            return (
+              <button
+                key={f.label}
+                type="button"
+                onClick={() => {
+                  setStatusFilter(f.value);
+                  setPage(1);
+                }}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                  isActive
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                {f.label}
+              </button>
+            );
+          })}
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 transition-colors"
-        >
-          <Plus size={16} />
-          New Contract
-        </button>
+
+        {/* Search Input */}
+        <div className="w-full sm:w-64">
+          <Input
+            placeholder="Search by title..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            leftIcon={<Search size={15} />}
+            className="h-9 text-xs"
+          />
+        </div>
       </div>
 
-      {/* Create modal */}
+      {/* Contract List Table */}
+      <Card padding="none" className="overflow-hidden">
+        {isLoading ? (
+          <TableSkeleton rows={6} />
+        ) : !filteredContracts || filteredContracts.length === 0 ? (
+          <EmptyState
+            icon={<FileText size={48} />}
+            title="No contracts found"
+            description={
+              statusFilter || searchQuery
+                ? "Try clearing your filters or search term to see more contracts."
+                : "Create your first electronic contract to begin collecting legal signatures."
+            }
+            action={
+              <Button
+                variant="primary"
+                onClick={() => setShowCreate(true)}
+                leftIcon={<Plus size={16} />}
+              >
+                Create Contract
+              </Button>
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  <th scope="col" className="px-6 py-3.5">Contract Title</th>
+                  <th scope="col" className="px-6 py-3.5">Status</th>
+                  <th scope="col" className="px-6 py-3.5">Participants</th>
+                  <th scope="col" className="px-6 py-3.5">Created Date</th>
+                  <th scope="col" className="px-6 py-3.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {filteredContracts.map((contract) => (
+                  <tr
+                    key={contract.id}
+                    className="hover:bg-slate-50/80 transition-colors group"
+                  >
+                    <td className="px-6 py-4">
+                      <Link
+                        to={`/contracts/${contract.id}`}
+                        className="font-semibold text-slate-900 hover:text-brand-600 transition-colors flex items-center gap-2"
+                      >
+                        <FileText size={16} className="text-slate-400 group-hover:text-brand-500 transition-colors" />
+                        {contract.title}
+                      </Link>
+                    </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge status={contract.status} />
+                    </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <Users size={14} className="text-slate-400" />
+                        <span>{contract.participants.length} signer{contract.participants.length !== 1 ? "s" : ""}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-xs text-slate-500">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar size={14} className="text-slate-400" />
+                        <span>{format(new Date(contract.createdAt), "MMM d, yyyy")}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Link
+                        to={`/contracts/${contract.id}`}
+                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 transition-colors"
+                      >
+                        View Details
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination Bar */}
+        {data && data.pagination.pages > 1 && (
+          <div className="flex items-center justify-between border-t border-slate-200 bg-white px-6 py-3.5 text-xs text-slate-500">
+            <div>
+              Showing{" "}
+              <span className="font-semibold text-slate-700">
+                {(data.pagination.page - 1) * data.pagination.limit + 1}
+              </span>{" "}
+              to{" "}
+              <span className="font-semibold text-slate-700">
+                {Math.min(data.pagination.page * data.pagination.limit, data.pagination.total)}
+              </span>{" "}
+              of <span className="font-semibold text-slate-700">{data.pagination.total}</span> contracts
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="xs"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                leftIcon={<ChevronLeft size={14} />}
+              >
+                Previous
+              </Button>
+              <span className="px-2 font-medium text-slate-700">
+                {page} / {data.pagination.pages}
+              </span>
+              <Button
+                variant="secondary"
+                size="xs"
+                onClick={() => setPage((p) => Math.min(data.pagination.pages, p + 1))}
+                disabled={page === data.pagination.pages}
+                rightIcon={<ChevronRight size={14} />}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Accessible Create Contract Modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Create Contract</h3>
-            <form onSubmit={handleCreate}>
-              <input
-                type="text"
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
+          onKeyDown={(e) => e.key === "Escape" && setShowCreate(false)}
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-modal border border-slate-100 animate-slide-in">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                  <Plus size={18} />
+                </div>
+                <h3 id="modal-title" className="text-base font-semibold text-slate-900">
+                  Create New Contract
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreate(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                aria-label="Close modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreate} className="space-y-4">
+              <Input
+                label="Contract Title"
+                placeholder="e.g. Master Services Agreement 2026"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="Contract title"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 autoFocus
+                required
+                hint="Give your contract an identifiable name for signers"
               />
-              <div className="flex justify-end gap-3">
-                <button
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={() => setShowCreate(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
-                  disabled={createContract.isPending}
-                  className="px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50"
+                  variant="primary"
+                  loading={createContract.isPending}
                 >
-                  {createContract.isPending ? "Creating..." : "Create"}
-                </button>
+                  Create & Continue
+                </Button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="flex items-center gap-3 mb-4">
-        <select
-          value={statusFilter || ""}
-          onChange={(e) => setStatusFilter(e.target.value || undefined)}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          <option value="">All statuses</option>
-          <option value="DRAFT">Draft</option>
-          <option value="SENT">Sent</option>
-          <option value="IN_PROGRESS">In Progress</option>
-          <option value="COMPLETED">Completed</option>
-          <option value="DECLINED">Declined</option>
-        </select>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-xl border overflow-hidden">
-        {isLoading ? (
-          <div className="p-12 text-center text-gray-500">Loading...</div>
-        ) : !data?.data.length ? (
-          <div className="p-12 text-center">
-            <FileText className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-            <p className="text-gray-500">No contracts yet</p>
-            <p className="text-sm text-gray-400 mt-1">
-              Create your first contract to get started
-            </p>
-          </div>
-        ) : (
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">
-                  Title
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">
-                  Status
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">
-                  Participants
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">
-                  Created
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {data.data.map((contract) => (
-                <tr
-                  key={contract.id}
-                  className="hover:bg-gray-50 transition-colors"
-                >
-                  <td className="px-6 py-4">
-                    <Link
-                      to={`/contracts/${contract.id}`}
-                      className="font-medium text-gray-900 hover:text-brand-500"
-                    >
-                      {contract.title}
-                    </Link>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-                        STATUS_STYLES[contract.status] || "bg-gray-100 text-gray-700"
-                      )}
-                    >
-                      {contract.status.replace("_", " ")}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {contract.participants.length}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {format(new Date(contract.createdAt), "MMM d, yyyy")}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Pagination */}
-      {data && data.pagination.pages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <p className="text-sm text-gray-500">
-            Showing {(data.pagination.page - 1) * data.pagination.limit + 1} to{" "}
-            {Math.min(data.pagination.page * data.pagination.limit, data.pagination.total)} of{" "}
-            {data.pagination.total}
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage(Math.max(1, page - 1))}
-              disabled={page === 1}
-              className="px-3 py-1.5 text-sm rounded-lg border hover:bg-gray-50 disabled:opacity-50"
-            >
-              Previous
-            </button>
-            <button
-              onClick={() => setPage(Math.min(data.pagination.pages, page + 1))}
-              disabled={page === data.pagination.pages}
-              className="px-3 py-1.5 text-sm rounded-lg border hover:bg-gray-50 disabled:opacity-50"
-            >
-              Next
-            </button>
           </div>
         </div>
       )}

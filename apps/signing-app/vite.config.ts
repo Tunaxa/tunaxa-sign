@@ -5,7 +5,10 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      "@axa-sign/ui": path.resolve(__dirname, "../../packages/ui/src"),
+    },
   },
   server: {
     port: 5174,

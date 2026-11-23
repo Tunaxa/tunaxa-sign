@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = "postgresql://tunaxa:axa_secret@localhost:5432/axa_sign?schema=public"
+  url      = env("DATABASE_URL")
 }
 
 // ─── Identity & Tenancy ───────────────────────────────

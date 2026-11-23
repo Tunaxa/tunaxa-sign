@@ -1,3 +1,9 @@
+import dotenv from "dotenv";
+import path from "path";
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+dotenv.config();
+
 import { app } from "./app";
 import { registerEventHandlers } from "./events/register";
 import { SigningService } from "./modules/signing/signing.service";
