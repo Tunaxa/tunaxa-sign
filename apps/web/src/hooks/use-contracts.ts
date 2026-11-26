@@ -1,6 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
+export type ParticipantType = "SIGNER" | "APPROVER" | "CC" | "VIEWER";
+
+export interface Participant {
+  id: string;
+  name: string;
+  email: string;
+  type?: ParticipantType;
+  role?: string | null;
+  signingOrder?: number;
+  status: string;
+  signedAt?: string | null;
+  declinedAt?: string | null;
+}
+
 export interface Contract {
   id: string;
   title: string;
@@ -9,12 +23,7 @@ export interface Contract {
   createdAt: string;
   sentAt?: string;
   completedAt?: string;
-  participants: Array<{
-    id: string;
-    name: string;
-    email: string;
-    status: string;
-  }>;
+  participants: Participant[];
   creator: {
     id: string;
     firstName: string;
@@ -116,6 +125,61 @@ export function useUploadDocument() {
         formData,
         onProgress
       );
+    },
+  });
+}
+
+export interface AddParticipantInput {
+  contractId: string;
+  name: string;
+  email: string;
+  type: ParticipantType;
+  role?: string;
+  signingOrder?: number;
+}
+
+export function useAddParticipant() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ contractId, ...data }: AddParticipantInput) =>
+      api.post<Participant>(`/contracts/${contractId}/participants`, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["contract", variables.contractId] });
+      queryClient.invalidateQueries({ queryKey: ["contracts"] });
+    },
+  });
+}
+
+export function useUpdateParticipant() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      contractId: _contractId,
+      data,
+    }: {
+      id: string;
+      contractId: string;
+      data: Partial<Omit<AddParticipantInput, "contractId">>;
+    }) => api.patch<Participant>(`/participants/${id}`, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["contract", variables.contractId] });
+      queryClient.invalidateQueries({ queryKey: ["contracts"] });
+    },
+  });
+}
+
+export function useDeleteParticipant() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, contractId: _contractId }: { id: string; contractId: string }) =>
+      api.delete(`/participants/${id}`),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["contract", variables.contractId] });
+      queryClient.invalidateQueries({ queryKey: ["contracts"] });
     },
   });
 }
