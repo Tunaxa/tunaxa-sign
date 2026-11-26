@@ -94,3 +94,28 @@ export function useCancelContract() {
     },
   });
 }
+
+export function useUploadDocument() {
+  return useMutation({
+    mutationFn: ({
+      file,
+      contractId,
+      onProgress,
+    }: {
+      file: File;
+      contractId?: string;
+      onProgress?: (percent: number) => void;
+    }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (contractId) {
+        formData.append("contractId", contractId);
+      }
+      return api.upload<{ id: string; name: string; size: number }>(
+        "/documents",
+        formData,
+        onProgress
+      );
+    },
+  });
+}

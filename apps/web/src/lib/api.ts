@@ -115,6 +115,71 @@ class ApiClient {
   delete<T>(path: string) {
     return this.request<T>(path, { method: 'DELETE' });
   }
+
+  upload<T>(
+    path: string,
+    formData: FormData,
+    onProgress?: (percent: number) => void
+  ): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE}${path}`);
+
+      if (this.token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${this.token}`);
+      }
+
+      if (xhr.upload && onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            onProgress(percent);
+          }
+        };
+      }
+
+      xhr.onload = async () => {
+        if (xhr.status === 401) {
+          const refreshed = await this._tryRefresh();
+          if (refreshed) {
+            try {
+              const res = await this.upload<T>(path, formData, onProgress);
+              resolve(res);
+              return;
+            } catch (err) {
+              reject(err);
+              return;
+            }
+          }
+          this._forceLogout();
+          reject(new Error("Session expired. Please sign in again."));
+          return;
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = xhr.responseText ? JSON.parse(xhr.responseText) : undefined;
+            resolve(data as T);
+          } catch {
+            resolve(undefined as T);
+          }
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.error || err.message || `HTTP ${xhr.status}`));
+          } catch {
+            reject(new Error(`HTTP ${xhr.status}`));
+          }
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error("Network error during file upload"));
+      };
+
+      xhr.send(formData);
+    });
+  }
 }
 
 export const api = new ApiClient();

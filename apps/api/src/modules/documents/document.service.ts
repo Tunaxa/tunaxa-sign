@@ -34,6 +34,38 @@ export class DocumentService {
       },
     });
 
+    if (contractId) {
+      const contract = await prisma.contract.findFirst({
+        where: { id: contractId, organizationId },
+        include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+      });
+
+      if (contract) {
+        const nextVersion = (contract.versions[0]?.version ?? 0) + 1;
+
+        await prisma.contractVersion.updateMany({
+          where: { contractId },
+          data: { isCurrent: false },
+        });
+
+        const version = await prisma.contractVersion.create({
+          data: {
+            contractId,
+            version: nextVersion,
+            documentId: document.id,
+            sha256: hash,
+            isCurrent: true,
+            createdBy: contract.createdBy,
+          },
+        });
+
+        await prisma.contract.update({
+          where: { id: contractId },
+          data: { currentVersionId: version.id },
+        });
+      }
+    }
+
     await eventBus.emit({
       type: "document.uploaded",
       organizationId,

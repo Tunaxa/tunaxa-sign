@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useContracts, useCreateContract } from "@/hooks/use-contracts";
+import { useContracts } from "@/hooks/use-contracts";
+import { CreateContractModal } from "@/components/contracts/CreateContractModal";
 import {
   Button,
   Input,
@@ -16,7 +17,6 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  X,
   Users,
   Calendar,
 } from "lucide-react";
@@ -36,18 +36,8 @@ export function ContractsPage() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
 
   const { data, isLoading } = useContracts({ page, status: statusFilter });
-  const createContract = useCreateContract();
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-    await createContract.mutateAsync({ title: newTitle.trim() });
-    setNewTitle("");
-    setShowCreate(false);
-  };
 
   const filteredContracts = data?.data.filter((contract) => {
     if (!searchQuery) return true;
@@ -230,66 +220,11 @@ export function ContractsPage() {
         )}
       </Card>
 
-      {/* Accessible Create Contract Modal */}
-      {showCreate && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-title"
-          onKeyDown={(e) => e.key === "Escape" && setShowCreate(false)}
-        >
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-modal border border-slate-100 animate-slide-in">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
-                  <Plus size={18} />
-                </div>
-                <h3 id="modal-title" className="text-base font-semibold text-slate-900">
-                  Create New Contract
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCreate(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                aria-label="Close modal"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreate} className="space-y-4">
-              <Input
-                label="Contract Title"
-                placeholder="e.g. Master Services Agreement 2026"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                autoFocus
-                required
-                hint="Give your contract an identifiable name for signers"
-              />
-
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setShowCreate(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  loading={createContract.isPending}
-                >
-                  Create & Continue
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Accessible Create Contract Modal with Drag & Drop PDF Upload (AXS-015) */}
+      <CreateContractModal
+        isOpen={showCreate}
+        onClose={() => setShowCreate(false)}
+      />
     </div>
   );
 }
