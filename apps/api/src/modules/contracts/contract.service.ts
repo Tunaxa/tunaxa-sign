@@ -65,10 +65,15 @@ export class ContractService {
           orderBy: { signingOrder: "asc" },
           include: { signatures: true },
         },
-        versions: { orderBy: { version: "desc" }, take: 1 },
+        versions: {
+          orderBy: { version: "desc" },
+          take: 1,
+          include: { document: true },
+        },
         creator: { select: { id: true, firstName: true, lastName: true, email: true } },
         template: { select: { id: true, name: true } },
         certificates: true,
+        _count: { select: { versions: true, signatures: true } },
       },
     });
 
@@ -95,8 +100,19 @@ export class ContractService {
     const transition = transitionContract(contract.status, "SENT");
     if (!transition.valid) throw new ConflictError(transition.error!);
 
+    if (!contract.versions || contract.versions.length === 0) {
+      throw new ConflictError("Le contrat ne contient aucun document. Veuillez associer un document PDF avant de l'envoyer.");
+    }
+
     if (contract.participants.length === 0) {
-      throw new ConflictError("Contract must have at least one participant");
+      throw new ConflictError("Le contrat doit comporter au moins un signataire pour être envoyé.");
+    }
+
+    const signersOnly = contract.participants.filter(
+      (p) => (p.type || "SIGNER") === "SIGNER"
+    );
+    if (signersOnly.length === 0) {
+      throw new ConflictError("Le contrat doit comporter au moins un participant ayant le rôle Signataire (SIGNER) pour être envoyé.");
     }
 
     const updated = await prisma.contract.update({
@@ -104,13 +120,13 @@ export class ContractService {
       data: { status: "SENT", sentAt: new Date() },
     });
 
-    // Create signing steps for each participant
-    const signers = contract.participants.filter(
-      (p) => p.type === "SIGNER" || p.type === "APPROVER"
+    // Create signing steps for participants who must sign or approve
+    const actionableParticipants = contract.participants.filter(
+      (p) => p.type === "SIGNER" || p.type === "APPROVER" || !p.type
     );
 
     await prisma.signingStep.createMany({
-      data: signers.map((p, i) => ({
+      data: actionableParticipants.map((p, i) => ({
         contractId,
         participantId: p.id,
         step: i + 1,

@@ -15,6 +15,24 @@ export interface Participant {
   declinedAt?: string | null;
 }
 
+export interface DocumentInfo {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  sha256?: string;
+  pageCount?: number;
+}
+
+export interface ContractVersion {
+  id: string;
+  version: number;
+  sha256: string;
+  createdAt: string;
+  documentId: string;
+  document?: DocumentInfo;
+}
+
 export interface Contract {
   id: string;
   title: string;
@@ -24,6 +42,7 @@ export interface Contract {
   sentAt?: string;
   completedAt?: string;
   participants: Participant[];
+  versions?: ContractVersion[];
   creator: {
     id: string;
     firstName: string;

@@ -9,6 +9,7 @@ import {
   type Participant,
 } from "@/hooks/use-contracts";
 import { ParticipantModal } from "@/components/contracts/ParticipantModal";
+import { SendConfirmModal } from "@/components/contracts/SendConfirmModal";
 import { Button, StatusBadge, Card } from "@axa-sign/ui";
 import { format } from "date-fns";
 import {
@@ -21,6 +22,7 @@ import {
   Calendar,
   Layers,
   FileCheck,
+  FileText,
   UserPlus,
   Pencil,
   Trash2,
@@ -47,6 +49,10 @@ export function ContractDetailPage() {
   const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Send Confirmation Modal & Guard States (AXS-017)
+  const [isSendConfirmOpen, setIsSendConfirmOpen] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -85,6 +91,51 @@ export function ContractDetailPage() {
   const sortedParticipants = [...contract.participants].sort(
     (a, b) => (a.signingOrder ?? 0) - (b.signingOrder ?? 0)
   );
+
+  // Guards for "Envoyer pour signature" (AXS-017)
+  const latestVersion = contract.versions?.[0];
+  const documentInfo = latestVersion?.document;
+  const hasDocument = Boolean(
+    (contract.versions && contract.versions.length > 0) ||
+    (contract._count?.versions && contract._count.versions > 0)
+  );
+
+  const signers = sortedParticipants.filter(
+    (p) => (p.type || "SIGNER") === "SIGNER"
+  );
+  const hasSigner = signers.length > 0;
+  const canSend = hasDocument && hasSigner;
+
+  const getSendTooltip = () => {
+    if (!hasDocument && !hasSigner) {
+      return "Document PDF manquant et aucun signataire (rôle Signataire) désigné.";
+    }
+    if (!hasDocument) {
+      return "Veuillez associer un document PDF avant de pouvoir envoyer ce contrat.";
+    }
+    if (!hasSigner) {
+      return "Veuillez désigner au moins un participant ayant le rôle « Signataire » pour envoyer le contrat.";
+    }
+    return "Déclencher l'envoi officiel du contrat aux signataires";
+  };
+
+  const handleOpenSendModal = () => {
+    if (!canSend) return;
+    setSendError(null);
+    setIsSendConfirmOpen(true);
+  };
+
+  const handleConfirmSend = async () => {
+    if (!contract || !canSend) return;
+    try {
+      setSendError(null);
+      await sendContract.mutateAsync(contract.id);
+      setIsSendConfirmOpen(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur lors de l'envoi du contrat.";
+      setSendError(msg);
+    }
+  };
 
   const handleOpenAdd = () => {
     setEditingParticipant(null);
@@ -199,20 +250,40 @@ export function ContractDetailPage() {
           {/* Action buttons (only in DRAFT state) */}
           {isDraft && (
             <div className="flex flex-wrap items-center gap-2.5">
-              <Button
-                variant="primary"
-                onClick={() => sendContract.mutate(contract.id)}
-                loading={sendContract.isPending}
-                disabled={contract.participants.length === 0}
-                title={
-                  contract.participants.length === 0
-                    ? "Ajoutez au moins un signataire pour envoyer le contrat"
-                    : "Envoyer le contrat à tous les signataires"
-                }
-                leftIcon={<Send size={15} />}
+              {/* Send Button with Tooltip and Guards (AXS-017) */}
+              <div
+                className="relative group inline-flex"
+                title={!canSend ? getSendTooltip() : undefined}
               >
-                Envoyer pour signature
-              </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleOpenSendModal}
+                  loading={sendContract.isPending}
+                  disabled={!canSend || sendContract.isPending}
+                  aria-disabled={!canSend}
+                  leftIcon={<Send size={15} />}
+                >
+                  Envoyer pour signature
+                </Button>
+
+                {/* Explicit floating tooltip on hover/focus when disabled (AXS-017) */}
+                {!canSend && (
+                  <div
+                    role="tooltip"
+                    className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 w-64 rounded-xl bg-slate-900 px-3.5 py-2.5 text-center text-xs text-white shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-30"
+                  >
+                    <div className="flex items-center justify-center gap-1.5 text-amber-300 font-bold mb-1">
+                      <AlertTriangle size={13} className="shrink-0" />
+                      <span>Envoi verrouillé</span>
+                    </div>
+                    <p className="text-[11px] text-slate-200 leading-snug">
+                      {getSendTooltip()}
+                    </p>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
+                  </div>
+                )}
+              </div>
+
               <Button
                 variant="danger"
                 onClick={() => cancelContract.mutate(contract.id)}
@@ -225,20 +296,101 @@ export function ContractDetailPage() {
           )}
         </div>
 
-        {/* Warning if draft with 0 signers */}
-        {isDraft && contract.participants.length === 0 && (
-          <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-            <span>
-              Ce contrat n'a aucun signataire assigné. Ajoutez au moins un participant pour pouvoir déclencher l'envoi.
-            </span>
+        {/* Pre-Flight Checklist Banner for DRAFT status (AXS-017) */}
+        {isDraft && (
+          <div
+            className={`mt-4 rounded-xl border p-3.5 transition-all ${
+              canSend
+                ? "border-emerald-200/80 bg-emerald-50/60 text-emerald-950"
+                : "border-amber-200 bg-amber-50/70 text-amber-950"
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                {canSend ? (
+                  <CheckCircle2 size={18} className="text-emerald-600 shrink-0 mt-0.5 sm:mt-0" />
+                ) : (
+                  <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+                )}
+                <div>
+                  <h4 className="text-xs font-bold">
+                    {canSend
+                      ? "Garde-fous validés — Prêt pour l'envoi"
+                      : "Garde-fous d'envoi non satisfaits"}
+                  </h4>
+                  <p className="text-[11px] text-slate-600 mt-0.5">
+                    {canSend
+                      ? "Le document et les signataires sont configurés. Vous pouvez déclencher le circuit de signature."
+                      : "Les conditions ci-dessous doivent être réunies pour pouvoir envoyer ce contrat."}
+                  </p>
+                </div>
+              </div>
+
+              {/* Checklist Badges */}
+              <div className="flex flex-wrap items-center gap-2 text-xs shrink-0">
+                {/* 1. Document Guard */}
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                    hasDocument
+                      ? "bg-emerald-100/80 text-emerald-800 border border-emerald-200/50"
+                      : "bg-amber-100 text-amber-800 border border-amber-300/60"
+                  }`}
+                  title={hasDocument ? "Document PDF présent" : "Aucun fichier PDF n'est associé"}
+                >
+                  {hasDocument ? (
+                    <CheckCircle size={13} className="text-emerald-700" />
+                  ) : (
+                    <XCircle size={13} className="text-amber-700" />
+                  )}
+                  <span>Document PDF {hasDocument ? "attaché" : "manquant"}</span>
+                </div>
+
+                {/* 2. Signer Guard */}
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                    hasSigner
+                      ? "bg-emerald-100/80 text-emerald-800 border border-emerald-200/50"
+                      : "bg-amber-100 text-amber-800 border border-amber-300/60"
+                  }`}
+                  title={
+                    hasSigner
+                      ? `${signers.length} participant(s) avec le rôle Signataire`
+                      : "Au moins 1 participant doit avoir le rôle Signataire"
+                  }
+                >
+                  {hasSigner ? (
+                    <CheckCircle size={13} className="text-emerald-700" />
+                  ) : (
+                    <XCircle size={13} className="text-amber-700" />
+                  )}
+                  <span>
+                    {hasSigner
+                      ? `${signers.length} signataire${signers.length > 1 ? "s" : ""} (SIGNER)`
+                      : "Aucun SIGNER"}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
-        {actionError && (
-          <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-            <XCircle size={16} className="text-red-500 shrink-0" />
-            <span>{actionError}</span>
+        {/* Global Action / API Error Banner */}
+        {(actionError || sendError) && (
+          <div className="mt-4 flex items-center justify-between gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            <div className="flex items-center gap-2">
+              <XCircle size={16} className="text-red-500 shrink-0" />
+              <span>{sendError || actionError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setActionError(null);
+                setSendError(null);
+              }}
+              className="text-red-400 hover:text-red-700 text-[11px] underline"
+            >
+              Fermer
+            </button>
           </div>
         )}
       </Card>
@@ -501,8 +653,70 @@ export function ContractDetailPage() {
           </Card>
         </div>
 
-        {/* Right Column: Metadata Overview */}
+        {/* Right Column: Document Card & Metadata Overview */}
         <div className="space-y-6">
+          {/* Document Card (AXS-017) */}
+          <Card padding="md">
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                <FileText size={16} className="text-brand-600" />
+                Document Associé
+              </h3>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  hasDocument
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200/50"
+                    : "bg-amber-50 text-amber-700 border border-amber-200/50"
+                }`}
+              >
+                {hasDocument ? "Attaché" : "Manquant"}
+              </span>
+            </div>
+
+            {hasDocument ? (
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-red-600 font-bold text-xs shrink-0">
+                    PDF
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-slate-900 truncate" title={documentInfo?.name || `${contract.title}.pdf`}>
+                      {documentInfo?.name || `${contract.title}.pdf`}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {documentInfo?.size
+                        ? `${(documentInfo.size / (1024 * 1024)).toFixed(2)} Mo`
+                        : "Fichier PDF sécurisé"}
+                      {latestVersion && ` • Version ${latestVersion.version}`}
+                    </p>
+                  </div>
+                </div>
+
+                {latestVersion?.sha256 && (
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                      Empreinte SHA-256
+                    </span>
+                    <p className="text-[10px] font-mono text-slate-600 bg-slate-100/70 px-2 py-1 rounded truncate border border-slate-200/50 select-all" title={latestVersion.sha256}>
+                      {latestVersion.sha256}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="py-4 text-center">
+                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 mb-2">
+                  <FileText size={20} />
+                </div>
+                <p className="text-xs font-semibold text-slate-700">Aucun document attaché</p>
+                <p className="text-[11px] text-slate-400 mt-0.5 max-w-[200px] mx-auto">
+                  Un document PDF doit être rattaché pour pouvoir envoyer ce contrat.
+                </p>
+              </div>
+            )}
+          </Card>
+
+          {/* Metadata Card */}
           <Card padding="md">
             <h3 className="text-sm font-semibold text-slate-900 mb-3 pb-2 border-b border-slate-100">
               Métadonnées du Contrat
@@ -518,13 +732,13 @@ export function ContractDetailPage() {
                 <span className="text-slate-500 flex items-center gap-1.5">
                   <FileCheck size={14} className="text-slate-400" /> Versions
                 </span>
-                <span className="font-medium text-slate-800">{contract._count.versions}</span>
+                <span className="font-medium text-slate-800">{contract._count?.versions ?? (contract.versions?.length || 0)}</span>
               </div>
               <div className="flex justify-between items-center py-1">
                 <span className="text-slate-500 flex items-center gap-1.5">
                   <ShieldCheck size={14} className="text-slate-400" /> Signatures
                 </span>
-                <span className="font-medium text-slate-800">{contract._count.signatures}</span>
+                <span className="font-medium text-slate-800">{contract._count?.signatures ?? 0}</span>
               </div>
               <div className="flex justify-between items-center py-1">
                 <span className="text-slate-500 flex items-center gap-1.5">
@@ -538,6 +752,22 @@ export function ContractDetailPage() {
           </Card>
         </div>
       </div>
+
+      {/* Send Confirmation Modal (AXS-017) */}
+      <SendConfirmModal
+        isOpen={isSendConfirmOpen}
+        onClose={() => {
+          setIsSendConfirmOpen(false);
+          setSendError(null);
+        }}
+        onConfirm={handleConfirmSend}
+        contractTitle={contract.title}
+        documentName={documentInfo?.name}
+        documentSize={documentInfo?.size}
+        participants={sortedParticipants}
+        isLoading={sendContract.isPending}
+        errorMessage={sendError}
+      />
 
       {/* Participant Modal (Add & Edit) */}
       <ParticipantModal
