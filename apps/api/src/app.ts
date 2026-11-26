@@ -6,10 +6,14 @@ import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 
 import { errorHandler, notFoundHandler } from "./middleware/error";
+import { rateLimitHandler } from "./middleware/rate-limit";
 import { requestId } from "./middleware/request-id";
 import { routes } from "./routes";
 
 export const app = express();
+
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 1);
+app.set("trust proxy", Number.isFinite(trustProxyHops) ? trustProxyHops : 1);
 
 // ─── Global Middleware ────────────────────────────────
 app.use(helmet());
@@ -35,7 +39,9 @@ app.use(
     max: 100,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: "Too many requests, please try again later" },
+    skip: (req) =>
+      req.path.startsWith("/v1/signing") || req.path === "/v1/auth/login",
+    handler: rateLimitHandler,
   })
 );
 

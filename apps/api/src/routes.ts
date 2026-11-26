@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { authenticate } from "@axa-sign/auth";
 
+import {
+  loginLimiter,
+  signingIpLimiter,
+  signingTokenLimiter,
+} from "./middleware/rate-limit";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { adminRoutes } from "./modules/admin/admin.routes";
 import { apiKeyRoutes } from "./modules/api-keys/api-key.routes";
@@ -18,7 +23,11 @@ import { userRoutes } from "./modules/users/user.routes";
 const router = Router();
 
 // ─── Public Routes ────────────────────────────────────
+router.post("/auth/login", loginLimiter);
 router.use("/auth", authRoutes);
+
+router.use("/signing", signingIpLimiter);
+router.use("/signing/session/:token", signingTokenLimiter);
 router.use("/signing", signingRoutes);
 
 // ─── Protected Routes ─────────────────────────────────

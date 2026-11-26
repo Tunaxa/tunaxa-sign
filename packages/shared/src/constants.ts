@@ -17,6 +17,11 @@ export const MAX_PAGE_SIZE = 100;
 
 export const CONTRACT_EXPIRY_DEFAULT_DAYS = 30;
 
+export const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+export const SIGNING_IP_RATE_LIMIT_MAX = 120;
+export const SIGNING_TOKEN_RATE_LIMIT_MAX = 60;
+export const LOGIN_RATE_LIMIT_MAX = 10;
+
 export const AUDIT_EVENT_TYPES = {
   CONTRACT_CREATED: "contract.created",
   CONTRACT_SENT: "contract.sent",
