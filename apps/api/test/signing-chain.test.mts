@@ -233,7 +233,7 @@ async function createFixture(ctx: Cleanup, label: string, options: { valid?: boo
   const contract = await prisma.contract.create({
     data: { title: `${label} ${suffix}`, organizationId: org.id, createdBy: user.id },
   });
-  const pdf = options.valid === false ? Buffer.from("this is not a pdf") : await originalPdf(label, options.pages ?? 2);
+  const pdf = options.valid === false ? Buffer.from("%PDF-1.4\n1 0 obj\n<< /Corrupt") : await originalPdf(label, options.pages ?? 2);
   const upload: any = await documents.upload(
     org.id,
     user.id,

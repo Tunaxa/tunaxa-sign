@@ -1,5 +1,5 @@
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import { sha256 } from "@axa-sign/shared";
+import { sha256, MAX_FILE_SIZE } from "@axa-sign/shared";
 
 export interface SignaturePlacement {
   page: number;
@@ -258,8 +258,8 @@ export async function extractPdfMetadata(pdfBuffer: Buffer) {
  * Validates a PDF buffer is parseable and within limits.
  */
 export async function validatePdf(pdfBuffer: Buffer): Promise<{ valid: boolean; error?: string }> {
-  if (pdfBuffer.byteLength > 50 * 1024 * 1024) {
-    return { valid: false, error: "PDF exceeds maximum size of 50MB" };
+  if (pdfBuffer.byteLength > MAX_FILE_SIZE) {
+    return { valid: false, error: "PDF exceeds maximum allowed size" };
   }
   try {
     await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });

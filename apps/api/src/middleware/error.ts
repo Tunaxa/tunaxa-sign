@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import multer from "multer";
 import { AppError, ValidationError } from "@axa-sign/shared";
 
 export function errorHandler(
@@ -21,6 +22,13 @@ export function errorHandler(
     return res.status(err.statusCode).json({
       error: err.message,
       code: err.code,
+    });
+  }
+
+  if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({
+      error: "File exceeds maximum allowed size",
+      code: "PAYLOAD_TOO_LARGE",
     });
   }
 

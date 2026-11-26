@@ -1,11 +1,12 @@
 import { Router } from "express";
 import multer from "multer";
+import { MAX_FILE_SIZE } from "@axa-sign/shared";
 import { requireOrganization } from "../../middleware/require-org";
 import { DocumentService } from "./document.service";
 
 const router = Router();
 const service = new DocumentService();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
 
 router.use(requireOrganization);
 

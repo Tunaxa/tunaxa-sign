@@ -1,7 +1,7 @@
 import prisma from "@axa-sign/database";
 import { StorageClient, STORAGE_FOLDERS } from "@axa-sign/storage";
 import { sha256 } from "@axa-sign/crypto";
-import { NotFoundError, ConflictError, generateId } from "@axa-sign/shared";
+import { BadRequestError, NotFoundError, ConflictError, generateId } from "@axa-sign/shared";
 import { eventBus } from "@axa-sign/events";
 
 const storage = new StorageClient({
@@ -13,6 +13,17 @@ const storage = new StorageClient({
   useSSL: process.env.STORAGE_USE_SSL === "true",
 });
 
+const PDF_MAGIC_BYTES = Buffer.from("%PDF-");
+
+function validatePdfUpload(file: Express.Multer.File): void {
+  if (file.mimetype !== "application/pdf") {
+    throw new BadRequestError("Only PDF files (application/pdf) are allowed");
+  }
+  if (!file.buffer || !file.buffer.subarray(0, PDF_MAGIC_BYTES.length).equals(PDF_MAGIC_BYTES)) {
+    throw new BadRequestError("Invalid PDF file: missing %PDF- header");
+  }
+}
+
 export class DocumentService {
   async upload(
     organizationId: string,
@@ -20,6 +31,8 @@ export class DocumentService {
     file: Express.Multer.File,
     contractId?: string
   ) {
+    validatePdfUpload(file);
+
     const hash = sha256(file.buffer);
     const key = `${STORAGE_FOLDERS.ORIGINAL}/${organizationId}/${generateId()}-${file.originalname}`;
 
