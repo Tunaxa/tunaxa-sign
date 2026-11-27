@@ -1,3 +1,34 @@
+import { sha256 } from "@axa-sign/shared";
+
+export interface AuditEventInput {
+  type: string;
+  data?: Record<string, unknown>;
+  organizationId: string;
+  contractId?: string;
+  userId?: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+export function buildAuditEventData(event: AuditEventInput) {
+  return {
+    type: event.type,
+    data: JSON.parse(JSON.stringify(event.data || {})),
+    organizationId: event.organizationId,
+    contractId: event.contractId,
+    userId: event.userId,
+    ipAddress: event.ipAddress,
+    userAgent: event.userAgent,
+  };
+}
+
+export function computeAuditEventHash(
+  event: AuditEventInput,
+  previousHash?: string | null
+): string {
+  return sha256(JSON.stringify(buildAuditEventData(event)) + (previousHash || ""));
+}
+
 export interface AuditEvent {
   id: string;
   type: string;

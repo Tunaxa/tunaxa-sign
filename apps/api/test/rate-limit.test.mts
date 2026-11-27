@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   hashToken,
   LOGIN_RATE_LIMIT_MAX,
@@ -9,15 +12,23 @@ import {
   SIGNING_TOKEN_RATE_LIMIT_MAX,
   UnauthorizedError,
 } from "@axa-sign/shared";
-import { getRedisConnection } from "@axa-sign/queue";
-import { app } from "../src/app.js";
-import {
+
+const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(here, "..", "..", "..");
+const envPath = resolve(repoRoot, ".env");
+if (existsSync(envPath)) {
+  process.loadEnvFile(envPath);
+}
+
+const { getRedisConnection } = await import("@axa-sign/queue");
+const { app } = await import("../src/app.js");
+const {
   loginLimiter,
   signingIpLimiter,
   signingTokenLimiter,
-} from "../src/middleware/rate-limit.js";
-import { AuthService } from "../src/modules/auth/auth.service.js";
-import { SigningService } from "../src/modules/signing/signing.service.js";
+} = await import("../src/middleware/rate-limit.js");
+const { AuthService } = await import("../src/modules/auth/auth.service.js");
+const { SigningService } = await import("../src/modules/signing/signing.service.js");
 
 async function startServer() {
   const server = http.createServer(app);

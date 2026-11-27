@@ -1,6 +1,11 @@
 import prisma from "@axa-sign/database";
-import { sha256, paginate, paginationMeta } from "@axa-sign/shared";
-import { verifyAuditChain, type AuditEvent } from "@axa-sign/domain";
+import { paginate, paginationMeta } from "@axa-sign/shared";
+import {
+  buildAuditEventData,
+  computeAuditEventHash,
+  verifyAuditChain,
+  type AuditEvent,
+} from "@axa-sign/domain";
 
 export class AuditService {
   async recordEvent(data: {
@@ -12,32 +17,36 @@ export class AuditService {
     ipAddress?: string;
     userAgent?: string;
   }) {
-    // Get previous hash for chain
-    const lastEvent = await prisma.auditEvent.findFirst({
-      where: { organizationId: data.organizationId },
-      orderBy: { createdAt: "desc" },
-    });
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${data.organizationId}::text))::text AS lock_result`;
 
-    const eventData = {
-      type: data.type,
-      data: JSON.parse(JSON.stringify(data.data || {})),
-      organizationId: data.organizationId,
-      contractId: data.contractId,
-      userId: data.userId,
-      ipAddress: data.ipAddress,
-      userAgent: data.userAgent,
-    };
+        const lastEvent = await tx.auditEvent.findFirst({
+          where: { organizationId: data.organizationId },
+          orderBy: { sequence: "desc" },
+        });
+        const sequence = (lastEvent?.sequence ?? 0) + 1;
+        const eventData = buildAuditEventData(data);
+        const hash = computeAuditEventHash(data, lastEvent?.hash);
 
-    const hashData = JSON.stringify(eventData) + (lastEvent?.hash || "");
-    const hash = sha256(hashData);
-
-    return prisma.auditEvent.create({
-      data: {
-        ...eventData,
-        hash,
-        previousHash: lastEvent?.hash,
-      },
-    });
+        return tx.auditEvent.create({
+          data: {
+            ...eventData,
+            sequence,
+            hash,
+            previousHash: lastEvent?.hash,
+          },
+        });
+      }, { timeout: 10000 });
+    } catch (error) {
+      if (error instanceof Error && /lock timeout/i.test(error.message)) {
+        throw new Error(
+          `Audit append for organization ${data.organizationId} timed out after 5s waiting for the organization lock`
+        );
+      }
+      throw error;
+    }
   }
 
   async getContractAudit(organizationId: string, contractId: string, query: { page?: number; limit?: number }) {
@@ -50,7 +59,7 @@ export class AuditService {
         where,
         skip,
         take,
-        orderBy: { createdAt: "asc" },
+        orderBy: { sequence: "asc" },
         include: {
           user: { select: { id: true, firstName: true, lastName: true, email: true } },
         },
@@ -79,7 +88,7 @@ export class AuditService {
         where,
         skip,
         take,
-        orderBy: { createdAt: "desc" },
+        orderBy: { sequence: "desc" },
         include: {
           user: { select: { id: true, firstName: true, lastName: true } },
           contract: { select: { id: true, title: true } },

@@ -2,7 +2,6 @@ import { createStorageClient } from "@axa-sign/storage";
 import { startDocumentWorker } from "./document.worker";
 import { startEmailWorker } from "./email.worker";
 import { startWebhookWorker } from "./webhook.worker";
-import { startAuditWorker } from "./audit.worker";
 import { startCleanupWorker } from "./cleanup.worker";
 
 async function main() {
@@ -14,7 +13,6 @@ async function main() {
   startDocumentWorker();
   startEmailWorker();
   startWebhookWorker();
-  startAuditWorker();
   startCleanupWorker();
 
   console.log("[Workers] All workers started");
