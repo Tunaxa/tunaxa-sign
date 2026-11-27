@@ -6,7 +6,7 @@
     "build": "tsc",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "test": "tsx --test test/template-engine.service.test.mts test/document-upload.service.test.mts test/document-validation.test.mts test/rate-limit.test.mts test/contract-send.service.test.mts test/document-org-scoping.test.mts test/signing-chain.test.mts test/sequential-signing.test.mts",
+    "test": "tsx --test test/template-engine.service.test.mts test/document-upload.service.test.mts test/document-validation.test.mts test/rate-limit.test.mts test/contract-send.service.test.mts test/document-org-scoping.test.mts test/signing-chain.test.mts test/sequential-signing.test.mts test/audit-chain.test.mts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

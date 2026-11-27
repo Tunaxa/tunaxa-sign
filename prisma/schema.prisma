@@ -365,6 +365,7 @@ model AuditEvent {
   data      Json     @default("{}")
   hash      String
   previousHash String?
+  sequence  Int
   ipAddress String?
   userAgent String?
   createdAt DateTime @default(now())
@@ -378,6 +379,7 @@ model AuditEvent {
   userId String?
   user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@unique([organizationId, sequence])
   @@index([organizationId])
   @@index([contractId])
   @@index([type])

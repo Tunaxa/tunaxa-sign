@@ -33,11 +33,13 @@ All notable changes to this project will be documented in this file.
 - TUN2-79: Allow DRAFT → SENT and make contract send create hashed 72-hour signing sessions and queue one invitation email per non-CC participant after the status, step and session transaction commits.
 - TUN2-81: Scope standalone documents to their organization; applying the new `add_document_organization_id` migration is required.
 - TUN2-10: Enforce sequential signing order with completion exactly once per contract.
+- TUN2-83: Serialize audit appends per organization with an explicit sequence; applying the new `add_audit_event_sequence` migration is required.
 
 ### Security
 
 - TUN2-81: Return 404 for cross-organization document reads, downloads and deletes; applying the new `add_document_organization_id` migration is required.
 - TUN2-8: Prevent concurrent signers from overwriting earlier signatures and fail signing when coordinates are missing, the PDF is unreadable, or sealing/storage fails instead of recording evidence-only success.
+- TUN2-83: Give each organization's audit chain a deterministic order and prevent concurrent appends from forking it; applying the new `add_audit_event_sequence` migration is required.
 
 ### Known gaps
 
