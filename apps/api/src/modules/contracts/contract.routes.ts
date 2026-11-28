@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../../middleware/validate";
 import { requireOrganization } from "../../middleware/require-org";
+import { sendPdfAttachment } from "../../middleware/pdf-response";
 import { ContractService } from "./contract.service";
 
 const router = Router();
@@ -53,6 +54,18 @@ router.get("/:id", async (req, res, next) => {
   try {
     const contract = await service.getById(req.user!.organizationId, req.params.id);
     res.json(contract);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/:id/download", async (req, res, next) => {
+  try {
+    const { buffer, title } = await service.download(
+      req.user!.organizationId,
+      req.params.id
+    );
+    sendPdfAttachment(res, buffer, `${title}.pdf`);
   } catch (error) {
     next(error);
   }
