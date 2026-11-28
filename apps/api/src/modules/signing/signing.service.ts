@@ -1,5 +1,5 @@
 import prisma, { type Prisma } from "@axa-sign/database";
-import { hashToken, generateToken, generateId, AppError, BadRequestError, NotFoundError, UnauthorizedError, ConflictError, sha256 } from "@axa-sign/shared";
+import { hashToken, generateToken, generateId, AppError, BadRequestError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, sha256 } from "@axa-sign/shared";
 import { applySignatures, validatePdf } from "@axa-sign/pdf";
 import { StorageClient, STORAGE_FOLDERS } from "@axa-sign/storage";
 import { eventBus } from "@axa-sign/events";
@@ -164,6 +164,37 @@ export class SigningService {
       buffer,
       document: version.document,
     };
+  }
+
+  async downloadSigned(token: string) {
+    const tokenHash = hashToken(token);
+
+    const session = await prisma.signingSession.findFirst({
+      where: { tokenHash },
+      include: {
+        participant: { include: { contract: true } },
+      },
+    });
+
+    if (!session) throw new NotFoundError("Signing session");
+    if (new Date() > session.expiresAt) {
+      throw new UnauthorizedError("Signing session has expired");
+    }
+    if (session.participant.status !== "SIGNED") {
+      throw new ForbiddenError("Download is only available after you have signed");
+    }
+
+    const version = await prisma.contractVersion.findFirst({
+      where: { contractId: session.participant.contractId, isCurrent: true },
+      include: { document: true },
+    });
+
+    if (!version?.document) {
+      throw new NotFoundError("Document", session.participant.contractId);
+    }
+
+    const buffer = await storage.download(version.document.storageKey);
+    return { buffer, title: session.participant.contract.title };
   }
 
   async authenticate(token: string, ipAddress?: string, userAgent?: string) {

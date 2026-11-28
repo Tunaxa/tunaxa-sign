@@ -12,7 +12,17 @@ import { transitionContract, type CreateContractInput, type UpdateContractInput 
 import { eventBus } from "@axa-sign/events";
 import { emailQueue } from "@axa-sign/queue";
 import { contractInvitationEmail } from "@axa-sign/notifications";
+import { StorageClient } from "@axa-sign/storage";
 import { AuditService } from "../audit/audit.service";
+
+const storage = new StorageClient({
+  endpoint: process.env.STORAGE_ENDPOINT || "localhost",
+  port: Number(process.env.STORAGE_PORT) || 9000,
+  bucket: process.env.STORAGE_BUCKET || "axa-sign",
+  accessKey: process.env.STORAGE_ACCESS_KEY || "minioadmin",
+  secretKey: process.env.STORAGE_SECRET_KEY || "minioadmin",
+  useSSL: process.env.STORAGE_USE_SSL === "true",
+});
 
 const SESSION_EXPIRY_HOURS = 72;
 
@@ -358,5 +368,25 @@ export class ContractService {
     }
 
     await prisma.contract.delete({ where: { id: contractId } });
+  }
+
+  async download(organizationId: string, contractId: string) {
+    const contract = await prisma.contract.findFirst({
+      where: { id: contractId, organizationId },
+      select: { title: true, currentVersionId: true },
+    });
+    if (!contract) throw new NotFoundError("Contract", contractId);
+    if (!contract.currentVersionId) {
+      throw new NotFoundError("Document for contract", contractId);
+    }
+
+    const version = await prisma.contractVersion.findFirst({
+      where: { contractId, isCurrent: true },
+      include: { document: true },
+    });
+    if (!version?.document) throw new NotFoundError("Document for contract", contractId);
+
+    const buffer = await storage.download(version.document.storageKey);
+    return { buffer, title: contract.title };
   }
 }

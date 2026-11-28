@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireOrganization } from "../../middleware/require-org";
+import { sendPdfAttachment } from "../../middleware/pdf-response";
 import { CertificateService } from "./certificate.service";
 
 const router = Router();
@@ -21,16 +22,11 @@ router.get("/contracts/:contractId", async (req, res, next) => {
 
 router.get("/contracts/:contractId/download", async (req, res, next) => {
   try {
-    const { buffer } = await service.download(
+    const { buffer, certificate } = await service.download(
       req.params.contractId,
       req.user!.organizationId
     );
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="certificate-${req.params.contractId}.pdf"`
-    );
-    res.send(buffer);
+    sendPdfAttachment(res, buffer, `certificate-${certificate.subject}.pdf`);
   } catch (error) {
     next(error);
   }

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../../middleware/validate";
+import { sanitizeFilename, sendPdfAttachment } from "../../middleware/pdf-response";
 import { SigningService } from "./signing.service";
 
 const router = Router();
@@ -32,9 +33,18 @@ router.get("/session/:token/document", async (req, res, next) => {
   try {
     const { buffer, document } = await service.getDocument(req.params.token as string);
     res.setHeader("Content-Type", document.mimeType || "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="${document.name}"`);
+    res.setHeader("Content-Disposition", `inline; filename="${sanitizeFilename(document.name)}"`);
     res.setHeader("Content-Length", buffer.length);
     res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/session/:token/download", async (req, res, next) => {
+  try {
+    const { buffer, title } = await service.downloadSigned(req.params.token);
+    sendPdfAttachment(res, buffer, `${title}.pdf`);
   } catch (error) {
     next(error);
   }
