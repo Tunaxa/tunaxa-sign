@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { MAX_FILE_SIZE } from "@axa-sign/shared";
 import { requireOrganization } from "../../middleware/require-org";
+import { sendPdfAttachment } from "../../middleware/pdf-response";
 import { DocumentService } from "./document.service";
 
 const router = Router();
@@ -49,9 +50,7 @@ router.get("/:id/download", async (req, res, next) => {
       req.user!.organizationId,
       req.params.id
     );
-    res.setHeader("Content-Type", document.mimeType);
-    res.setHeader("Content-Disposition", `attachment; filename="${document.name}"`);
-    res.send(buffer);
+    sendPdfAttachment(res, buffer, document.name);
   } catch (error) {
     next(error);
   }
