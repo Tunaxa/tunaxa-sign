@@ -6,7 +6,16 @@ export function validate(schema: ZodSchema, source: "body" | "query" | "params" 
   return (req: Request, _res: Response, next: NextFunction) => {
     try {
       const data = schema.parse(req[source]);
-      req[source] = data;
+      if (source === "query") {
+        Object.defineProperty(req, "query", {
+          value: data,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      } else {
+        req[source] = data;
+      }
       next();
     } catch (error) {
       if (error instanceof ZodError) {

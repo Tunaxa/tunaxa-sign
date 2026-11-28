@@ -1,11 +1,49 @@
 import prisma from "@axa-sign/database";
-import { paginate, paginationMeta } from "@axa-sign/shared";
+import { NotFoundError, paginate, paginationMeta } from "@axa-sign/shared";
 import {
   buildAuditEventData,
   computeAuditEventHash,
-  verifyAuditChain,
-  type AuditEvent,
 } from "@axa-sign/domain";
+
+export interface AuditTimelineActor {
+  type: "user" | "system";
+  name: string | null;
+  email: string | null;
+}
+
+export interface AuditTimelineItem {
+  id: string;
+  type: string;
+  timestamp: string;
+  actor: AuditTimelineActor;
+  ipAddress: string | null;
+}
+
+export function mapAuditEventToTimelineItem(event: {
+  id: string;
+  type: string;
+  createdAt: Date;
+  ipAddress: string | null;
+  user: { firstName: string; lastName: string; email: string } | null;
+}): AuditTimelineItem {
+  return {
+    id: event.id,
+    type: event.type,
+    timestamp: event.createdAt.toISOString(),
+    actor: event.user
+      ? {
+          type: "user",
+          name: `${event.user.firstName} ${event.user.lastName}`,
+          email: event.user.email,
+        }
+      : {
+          type: "system",
+          name: null,
+          email: null,
+        },
+    ipAddress: event.ipAddress ?? null,
+  };
+}
 
 export class AuditService {
   async recordEvent(data: {
@@ -49,8 +87,18 @@ export class AuditService {
     }
   }
 
-  async getContractAudit(organizationId: string, contractId: string, query: { page?: number; limit?: number }) {
-    const { skip, take, page, limit } = paginate(query.page, query.limit);
+  async getContractAudit(
+    organizationId: string,
+    contractId: string,
+    query: { page?: number; limit?: number }
+  ) {
+    const contract = await prisma.contract.findFirst({
+      where: { id: contractId, organizationId },
+      select: { id: true },
+    });
+    if (!contract) throw new NotFoundError("Contract", contractId);
+
+    const { skip, take, page, limit } = paginate(query.page, query.limit ?? 50);
 
     const where = { organizationId, contractId };
 
@@ -60,20 +108,20 @@ export class AuditService {
         skip,
         take,
         orderBy: { sequence: "asc" },
-        include: {
-          user: { select: { id: true, firstName: true, lastName: true, email: true } },
+        select: {
+          id: true,
+          type: true,
+          createdAt: true,
+          ipAddress: true,
+          user: { select: { firstName: true, lastName: true, email: true } },
         },
       }),
       prisma.auditEvent.count({ where }),
     ]);
 
-    const chainValid = verifyAuditChain(events as unknown as AuditEvent[]);
-
     return {
-      events,
+      data: events.map(mapAuditEventToTimelineItem),
       pagination: paginationMeta(total, page, limit),
-      chainValid: chainValid.isValid,
-      brokenAt: chainValid.brokenAt,
     };
   }
 
